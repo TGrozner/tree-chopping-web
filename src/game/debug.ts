@@ -13,7 +13,7 @@ export const getDebugSnapshot = (state: GameState): DebugSnapshot => ({
   fallingTrees: state.trees.filter((tree) => tree.status === 'falling').length,
   fallenTrees: state.trees.filter((tree) => tree.status === 'fallen').length,
   fallenTrunks: state.trees.filter((tree) => tree.status === 'fallen' && !tree.splitDone).length,
-  landedLogs: state.trees.filter((tree) => tree.status === 'fallen' && !tree.splitDone).length,
+  landedLogs: state.trees.filter((tree) => tree.status === 'fallen' && !tree.splitDone).length + state.logs.filter((log) => log.status === 'landed' && !log.splitDone).length,
   woodItems: state.woodItems.filter((item) => !item.collected).length,
   player: { ...state.player.position },
 })

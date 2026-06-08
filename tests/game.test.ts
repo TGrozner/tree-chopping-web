@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createWorld } from '../src/game/createWorld'
 import { add, normalize, scale, sub, vec } from '../src/game/math'
 import { backpackTotal, createEmptyInput, stepGame } from '../src/game/systems'
+import { TUNABLES } from '../src/game/tunables'
 import type { GameState, Tree } from '../src/game/types'
 
 const stepSeconds = (state: GameState, seconds: number): void => {
@@ -68,7 +69,8 @@ describe('tree-chopping sbox loop', () => {
     stepSeconds(state, 2.1)
     expect(tree.status).toBe('fallen')
     expect(tree.logHealth).toBeGreaterThan(0)
-    expect(state.stats.cascades).toBe(0)
+    expect(state.stats.cascades).toBeGreaterThanOrEqual(1)
+    expect(state.trees.filter((candidate) => candidate.status !== 'standing').length).toBeGreaterThan(1)
     expect(tree.rollAngle).toBeGreaterThan(0)
     expect(state.logs).toHaveLength(0)
 
@@ -94,6 +96,83 @@ describe('tree-chopping sbox loop', () => {
     expect(state.stats.swings).toBeGreaterThanOrEqual(3)
     expect(state.stats.hits).toBeGreaterThanOrEqual(3)
     expect(tree.status).not.toBe('standing')
+  })
+
+  it('moves forward relative to the mouse-controlled camera yaw', () => {
+    const state = createWorld()
+    const look = createEmptyInput()
+    look.lookDeltaX = 360
+    stepGame(state, look, 1 / 60)
+    expect(state.player.cameraYaw).toBeGreaterThan(1)
+
+    const start = { ...state.player.position }
+    const move = createEmptyInput()
+    move.up = true
+    for (let index = 0; index < 24; index += 1) stepGame(state, move, 1 / 60)
+
+    expect(state.player.position.z - start.z).toBeGreaterThan(2)
+  })
+
+  it('lets rolling fallen trunks impact standing trees', () => {
+    const state = createWorld()
+    const source = starterTree(state)
+    const target = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!target) throw new Error('missing neighboring sapling')
+
+    state.trees = [source, target]
+    source.position = vec(0, 0)
+    source.status = 'fallen'
+    source.fallDirection = vec(1, 0)
+    source.fallAngle = TUNABLES.treeGroundAngle
+    source.logHealth = 2
+    source.logMaxHealth = 2
+    source.logVelocity = vec(0, 3.6)
+    source.logAngularVelocity = 8
+    source.impactedTreeIds = []
+    target.position = vec(2.6, 0.45)
+
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    expect(state.stats.cascades).toBeGreaterThanOrEqual(1)
+    expect(target.status).toBe('falling')
+    expect(source.logVelocity.z).toBeLessThan(3.6)
+  })
+
+  it('splits larger trunks into chopable half-logs before wood items', () => {
+    const state = createWorld()
+    const tree = state.trees.find((candidate) => candidate.kind === 'normal')
+    if (!tree) throw new Error('missing normal tree')
+    state.trees = [tree]
+    tree.position = vec(0, 0)
+    tree.status = 'fallen'
+    tree.fallDirection = vec(1, 0)
+    tree.fallAngle = TUNABLES.treeGroundAngle
+    tree.logHealth = 1
+    tree.logMaxHealth = 2
+    tree.reward = 4
+    tree.minAxeTier = 0
+    tree.splitDone = false
+    tree.splitStage = 0
+    state.player.position = vec(1.8, -1.2)
+    state.player.facing = vec(0, 1)
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    swing(state)
+
+    expect(tree.splitDone).toBe(true)
+    expect(tree.splitStage).toBe(1)
+    expect(state.logs).toHaveLength(2)
+    expect(state.woodItems).toHaveLength(0)
+
+    const halfLog = state.logs[0]
+    state.player.position = add(halfLog.position, vec(-1.1, 0))
+    state.player.facing = normalize(sub(halfLog.position, state.player.position))
+    stepGame(state, createEmptyInput(), 1 / 60)
+    swing(state, 2)
+
+    expect(halfLog.splitDone).toBe(true)
+    expect(halfLog.status).toBe('split')
+    expect(state.woodItems.length).toBeGreaterThan(0)
   })
 
   it('keeps swing targeting forgiving when the player is close but not precisely aimed', () => {

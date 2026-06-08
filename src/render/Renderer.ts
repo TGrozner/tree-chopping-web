@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { terrainHeightAt } from '../game/terrain'
 import { AXE_NAMES, TUNABLES } from '../game/tunables'
-import type { FeedbackEvent, GameState, Station, Tree, Vec2, WoodItem } from '../game/types'
+import type { FeedbackEvent, GameState, Log, Station, Tree, Vec2, WoodItem } from '../game/types'
 
 const toThree = (v: Vec2, yOffset = 0): THREE.Vector3 => new THREE.Vector3(v.x, terrainHeightAt(v) + yOffset, v.z)
 
@@ -81,13 +81,17 @@ export class Renderer {
   private readonly scene = new THREE.Scene()
   private readonly camera = new THREE.PerspectiveCamera(50, 1, 0.1, 260)
   private readonly cameraLookAt = new THREE.Vector3()
+  private readonly cameraForward = new THREE.Vector3(1, 0, 0)
   private readonly player = new THREE.Group()
   private readonly trees = new Map<string, THREE.Group>()
+  private readonly logs = new Map<string, THREE.Mesh>()
   private readonly woodItems = new Map<string, THREE.Mesh>()
   private readonly stations = new Map<string, THREE.Group>()
   private readonly feedback = new Map<number, THREE.Sprite>()
+  private readonly effects = new Map<number, THREE.Group>()
   private readonly targetRing: THREE.Mesh
   private readonly stationRing: THREE.Mesh
+  private readonly axeHandle: THREE.Mesh
   private readonly axeHead: THREE.Mesh
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -128,13 +132,13 @@ export class Renderer {
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.12, 0.56), new THREE.MeshLambertMaterial({ color: '#5c3920' }))
     tail.position.set(0, 0.35, -0.56)
     tail.rotation.x = -0.35
-    const axeHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.05, 6), new THREE.MeshLambertMaterial({ color: '#6f4524' }))
-    axeHandle.position.set(0.5, 1.0, 0.26)
-    axeHandle.rotation.z = -0.64
+    this.axeHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.05, 6), new THREE.MeshLambertMaterial({ color: '#6f4524' }))
+    this.axeHandle.position.set(0.5, 1.0, 0.26)
+    this.axeHandle.rotation.z = -0.64
     this.axeHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.22), new THREE.MeshLambertMaterial({ color: '#d7e0df' }))
     this.axeHead.position.set(0.72, 1.32, 0.3)
     this.axeHead.rotation.z = -0.22
-    this.player.add(body, head, nose, tail, axeHandle, this.axeHead)
+    this.player.add(body, head, nose, tail, this.axeHandle, this.axeHead)
     this.scene.add(this.player)
 
     this.targetRing = new THREE.Mesh(
@@ -170,6 +174,7 @@ export class Renderer {
     })
     stationGeometry.dispose()
     stationPostGeometry.dispose()
+    delete (window as Window & { __TREE_CHOPPING_CAMERA__?: unknown }).__TREE_CHOPPING_CAMERA__
     this.renderer.dispose()
   }
 
@@ -178,6 +183,7 @@ export class Renderer {
     this.syncStations(state.stations, state.activeStationId)
     this.syncPlayer(state)
     this.syncTrees(state)
+    this.syncLogs(state.logs)
     this.syncWoodItems(state.woodItems)
     this.syncFeedback(state.feedback)
     this.syncTargetRing(state)
@@ -207,6 +213,16 @@ export class Renderer {
     material.color.set(tierColor)
     this.axeHead.scale.x = state.axeTier >= 5 ? 1.45 : state.axeTier >= 2 ? 1.15 : 1
     this.axeHead.name = AXE_NAMES[state.axeTier]
+
+    const phase = state.swing.phase
+    const windupProgress = phase === 'windup' ? Math.min(1, state.swing.elapsed / TUNABLES.swingWindup) : 0
+    const recoveryProgress = phase === 'recovery' ? Math.min(1, state.swing.elapsed / TUNABLES.swingRecovery) : 0
+    const swingPose = phase === 'windup' ? -windupProgress : phase === 'recovery' ? -1 + recoveryProgress * 1.35 : 0
+    this.axeHandle.rotation.z = -0.64 + swingPose * 0.95
+    this.axeHandle.rotation.x = swingPose * 0.25
+    this.axeHead.rotation.z = -0.22 + swingPose * 0.95
+    this.axeHead.position.y = 1.32 + Math.max(0, -swingPose) * 0.18
+    this.axeHead.position.x = 0.72 + swingPose * 0.1
   }
 
   private syncStations(stations: Station[], activeStationId: string | null): void {
@@ -302,7 +318,15 @@ export class Renderer {
         continue
       }
       if (tree.status === 'standing') {
-        group.quaternion.identity()
+        const shakeLife = tree.shakeTimer / TUNABLES.treeShakeDuration
+        if (shakeLife > 0) {
+          const axis = new THREE.Vector3(tree.shakeDirection.z, 0, -tree.shakeDirection.x).normalize()
+          const wobble = Math.sin((1 - shakeLife) * TUNABLES.treeShakeFrequency) * shakeLife * TUNABLES.treeShakeMaxAngle * (1 + tree.cutProgress * 0.45)
+          group.quaternion.setFromAxisAngle(axis, wobble)
+          group.scale.setScalar(tree.scale * highlight * (1 + shakeLife * 0.025))
+        } else {
+          group.quaternion.identity()
+        }
         group.visible = true
         continue
       }
@@ -313,6 +337,34 @@ export class Renderer {
       const rollQuaternion = new THREE.Quaternion().setFromAxisAngle(rollAxis, tree.status === 'fallen' ? tree.rollAngle : 0)
       group.quaternion.copy(rollQuaternion.multiply(fallQuaternion))
       group.visible = true
+    }
+  }
+
+  private syncLogs(logs: Log[]): void {
+    const liveLogs = logs.filter((log) => log.status === 'landed' && !log.splitDone)
+    const liveIds = new Set(liveLogs.map((log) => log.id))
+    for (const [id, mesh] of this.logs) {
+      if (liveIds.has(id)) continue
+      this.scene.remove(mesh)
+      this.logs.delete(id)
+    }
+
+    for (const log of liveLogs) {
+      let mesh = this.logs.get(log.id)
+      if (!mesh) {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 1, 10), new THREE.MeshLambertMaterial({ color: woodColor(log.woodType), flatShading: true }))
+        mesh.castShadow = true
+        mesh.receiveShadow = true
+        this.scene.add(mesh)
+        this.logs.set(log.id, mesh)
+      }
+      const length = TUNABLES.treeHeight * log.scale * 0.48
+      mesh.scale.set(log.scale * 0.62, length, log.scale * 0.62)
+      mesh.position.copy(toThree(log.position, 0.36))
+      const direction = new THREE.Vector3(log.direction.x, 0, log.direction.z).normalize()
+      const align = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction)
+      const roll = new THREE.Quaternion().setFromAxisAngle(direction, log.rollAngle)
+      mesh.quaternion.copy(roll.multiply(align))
     }
   }
 
@@ -351,6 +403,11 @@ export class Renderer {
       this.scene.remove(sprite)
       this.feedback.delete(id)
     }
+    for (const [id, group] of this.effects) {
+      if (ids.has(id)) continue
+      this.scene.remove(group)
+      this.effects.delete(id)
+    }
     for (const event of events) {
       let sprite = this.feedback.get(event.id)
       if (!sprite) {
@@ -363,11 +420,70 @@ export class Renderer {
       const t = event.age / TUNABLES.feedbackLifetime
       sprite.position.copy(toThree(event.position, 1.7 + t * 1.8))
       sprite.material.opacity = Math.max(0, 1 - t)
+      this.syncEffect(event, t)
     }
+  }
+
+  private syncEffect(event: FeedbackEvent, t: number): void {
+    if (!['hit', 'impact', 'fall', 'split'].includes(event.kind)) return
+    let group = this.effects.get(event.id)
+    if (!group) {
+      group = this.createEffect(event)
+      this.scene.add(group)
+      this.effects.set(event.id, group)
+    }
+    group.position.copy(toThree(event.position, event.kind === 'impact' || event.kind === 'fall' ? 0.16 : 0.85))
+    const fade = Math.max(0, 1 - t)
+    for (const child of group.children) {
+      const mesh = child as THREE.Mesh
+      const velocity = mesh.userData.velocity as THREE.Vector3 | undefined
+      if (velocity) mesh.position.copy(velocity.clone().multiplyScalar(event.age))
+      mesh.rotation.x += (mesh.userData.spinX as number | undefined) ?? 0
+      mesh.rotation.y += (mesh.userData.spinY as number | undefined) ?? 0
+      const material = mesh.material as THREE.Material & { opacity?: number; transparent?: boolean }
+      material.transparent = true
+      material.opacity = fade * ((mesh.userData.baseOpacity as number | undefined) ?? 1)
+      const baseScale = (mesh.userData.baseScale as number | undefined) ?? 1
+      mesh.scale.setScalar(baseScale * (event.kind === 'impact' || event.kind === 'fall' ? 0.55 + t * 1.7 : 1 - t * 0.25))
+    }
+  }
+
+  private createEffect(event: FeedbackEvent): THREE.Group {
+    const group = new THREE.Group()
+    const isDust = event.kind === 'impact' || event.kind === 'fall'
+    const isSplit = event.kind === 'split'
+    const count = isDust ? 12 : isSplit ? 16 : 8
+    if (isDust) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.75, 0.035, 6, 36),
+        new THREE.MeshBasicMaterial({ color: '#bba16a', transparent: true, opacity: 0.46 }),
+      )
+      ring.rotation.x = Math.PI * 0.5
+      ring.userData.baseOpacity = 0.46
+      ring.userData.baseScale = 0.55
+      group.add(ring)
+    }
+    for (let index = 0; index < count; index += 1) {
+      const angle = (index / count) * Math.PI * 2
+      const speed = isDust ? 1.2 + (index % 4) * 0.25 : isSplit ? 2.2 + (index % 5) * 0.25 : 1.7 + (index % 4) * 0.2
+      const vertical = isDust ? 0.08 + (index % 3) * 0.035 : 0.45 + (index % 4) * 0.08
+      const mesh = new THREE.Mesh(
+        isDust ? new THREE.DodecahedronGeometry(0.08 + (index % 3) * 0.02, 0) : new THREE.BoxGeometry(0.14, 0.08, 0.08),
+        new THREE.MeshLambertMaterial({ color: isDust ? '#b79a61' : index % 3 === 0 ? '#d2a15d' : '#8b5d32', transparent: true }),
+      )
+      mesh.userData.velocity = new THREE.Vector3(Math.cos(angle) * speed, vertical, Math.sin(angle) * speed)
+      mesh.userData.spinX = 0.05 + (index % 4) * 0.018
+      mesh.userData.spinY = 0.04 + (index % 5) * 0.014
+      mesh.userData.baseOpacity = isDust ? 0.58 : 0.92
+      mesh.userData.baseScale = isDust ? 1.1 : isSplit ? 1.15 : 1
+      group.add(mesh)
+    }
+    return group
   }
 
   private syncTargetRing(state: GameState): void {
     const targetTree = state.trees.find((tree) => tree.id === state.currentTargetId)
+    const targetLog = state.logs.find((log) => log.id === state.currentTargetId && log.status === 'landed' && !log.splitDone)
     if (targetTree) {
       this.targetRing.visible = true
       this.targetRing.scale.setScalar(targetTree.status === 'fallen' ? 0.82 : targetTree.scale * (targetTree.kind === 'sapling' ? 0.78 : 1.05))
@@ -379,6 +495,10 @@ export class Renderer {
             }
           : targetTree.position
       this.targetRing.position.copy(toThree(targetPosition, 0.08))
+    } else if (targetLog) {
+      this.targetRing.visible = true
+      this.targetRing.scale.setScalar(Math.max(0.52, targetLog.scale * 0.78))
+      this.targetRing.position.copy(toThree(targetLog.position, 0.08))
     } else {
       this.targetRing.visible = false
     }
@@ -397,23 +517,36 @@ export class Renderer {
     const height = this.canvas.clientHeight
     const isPortrait = height > width
     const target = toThree(state.player.position, 1.05)
-    const facing = new THREE.Vector3(state.player.facing.x, 0, state.player.facing.z).normalize()
-    const distance = isPortrait ? 9.6 : 8.5
-    const elevation = isPortrait ? 6.9 : 5.8
-    const lookAhead = isPortrait ? 4.1 : 5.1
+    const desiredForward = new THREE.Vector3(Math.cos(state.player.cameraYaw), 0, Math.sin(state.player.cameraYaw)).normalize()
+    if (this.camera.position.lengthSq() < 0.001) this.cameraForward.copy(desiredForward)
+    else this.cameraForward.lerp(desiredForward, 0.18).normalize()
+
+    const distance = isPortrait ? 10.5 : 9.4
+    const elevation = isPortrait ? 8.4 : 7.3
+    const lookAhead = isPortrait ? 3.1 : 3.8
     const desiredPosition = new THREE.Vector3(
-      target.x - facing.x * distance,
+      target.x - this.cameraForward.x * distance,
       target.y + elevation,
-      target.z - facing.z * distance,
+      target.z - this.cameraForward.z * distance,
     )
     const desiredLookAt = new THREE.Vector3(
-      target.x + facing.x * lookAhead,
+      target.x + this.cameraForward.x * lookAhead,
       target.y + 1.12,
-      target.z + facing.z * lookAhead,
+      target.z + this.cameraForward.z * lookAhead,
     )
-    const targetFov = isPortrait ? 69 : 64
+    const targetFov = isPortrait ? 66 : 61
+    let cameraImpulse = 0
+    for (const event of state.feedback) {
+      if (!['hit', 'impact', 'fall', 'split'].includes(event.kind)) continue
+      const t = Math.min(1, event.age / TUNABLES.feedbackLifetime)
+      const strength = event.kind === 'hit' ? 0.08 : event.kind === 'split' ? 0.18 : event.label === 'thud' ? 0.28 : 0.2
+      cameraImpulse += Math.sin((1 - t) * Math.PI * 3) * Math.pow(1 - t, 2) * strength
+    }
     if (this.camera.position.lengthSq() < 0.001) this.camera.position.copy(desiredPosition)
     else this.camera.position.lerp(desiredPosition, 0.22)
+    this.camera.position.y += cameraImpulse
+    this.camera.position.x += -this.cameraForward.z * cameraImpulse * 0.22
+    this.camera.position.z += this.cameraForward.x * cameraImpulse * 0.22
     if (this.cameraLookAt.lengthSq() < 0.001) this.cameraLookAt.copy(desiredLookAt)
     else this.cameraLookAt.lerp(desiredLookAt, 0.28)
     if (Math.abs(this.camera.fov - targetFov) > 0.01) {
@@ -421,5 +554,16 @@ export class Renderer {
       this.camera.updateProjectionMatrix()
     }
     this.camera.lookAt(this.cameraLookAt)
+    ;(window as Window & {
+      __TREE_CHOPPING_CAMERA__?: {
+        position: { x: number; y: number; z: number }
+        lookAt: { x: number; y: number; z: number }
+        fov: number
+      }
+    }).__TREE_CHOPPING_CAMERA__ = {
+      position: { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z },
+      lookAt: { x: this.cameraLookAt.x, y: this.cameraLookAt.y, z: this.cameraLookAt.z },
+      fov: this.camera.fov,
+    }
   }
 }

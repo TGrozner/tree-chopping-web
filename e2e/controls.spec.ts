@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 type Vec2 = { x: number; z: number }
 type Box = { x: number; y: number; width: number; height: number }
+type CameraOffset = Vec2 & { fov: number }
 
 const distance = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -12,8 +13,20 @@ const waitForGame = async (page: Page): Promise<void> => {
   await page.goto('/')
   await expect(page.getByLabel('Tree Chopping Web game canvas')).toBeVisible()
   await page.waitForFunction(() => Boolean((window as any).__TREE_CHOPPING_TEST__))
+  await page.waitForFunction(() => Boolean((window as any).__TREE_CHOPPING_CAMERA__))
   await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().currentTargetId === 'starter-sapling-000')
 }
+
+const cameraOffset = async (page: Page): Promise<CameraOffset> =>
+  page.evaluate(() => {
+    const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+    const camera = (window as any).__TREE_CHOPPING_CAMERA__
+    return {
+      x: camera.position.x - state.player.position.x,
+      z: camera.position.z - state.player.position.z,
+      fov: camera.fov,
+    }
+  })
 
 test('keyboard controls move toward the visible first target and mouse click swings', async ({ page }) => {
   const consoleErrors: string[] = []
@@ -53,6 +66,57 @@ test('keyboard controls move toward the visible first target and mouse click swi
   const afterSwing = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getState())
   expect(afterSwing.stats.hits).toBeGreaterThanOrEqual(3)
   expect(consoleErrors).toEqual([])
+})
+
+test('camera keeps a stable play heading while strafing and reversing', async ({ page }) => {
+  await waitForGame(page)
+
+  const initial = await cameraOffset(page)
+  expect(initial.x).toBeLessThan(-8)
+  expect(Math.abs(initial.z)).toBeLessThan(0.3)
+
+  await page.keyboard.down('d')
+  await page.waitForTimeout(650)
+  await page.keyboard.up('d')
+
+  const afterRight = await cameraOffset(page)
+  expect(afterRight.x).toBeLessThan(-7)
+  expect(Math.abs(afterRight.z)).toBeLessThan(2)
+
+  await page.keyboard.down('s')
+  await page.waitForTimeout(650)
+  await page.keyboard.up('s')
+
+  const afterBack = await cameraOffset(page)
+  expect(afterBack.x).toBeLessThan(-7)
+  expect(Math.abs(afterBack.z)).toBeLessThan(2)
+})
+
+test('mouse look turns the third-person movement heading', async ({ page }) => {
+  await waitForGame(page)
+  const canvas = page.getByLabel('Tree Chopping Web game canvas')
+
+  const before = await page.evaluate(() => {
+    const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+    return { position: { ...state.player.position }, yaw: state.player.cameraYaw }
+  })
+  expect(before.yaw).toBeCloseTo(0, 2)
+
+  await canvas.dispatchEvent('mousedown', { button: 2, buttons: 2, bubbles: true })
+  await canvas.dispatchEvent('mousemove', { movementX: 360, buttons: 2, bubbles: true })
+  await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getState().player.cameraYaw > 1)
+  await canvas.dispatchEvent('mouseup', { button: 2, buttons: 0, bubbles: true })
+
+  await page.keyboard.down('w')
+  await page.waitForTimeout(650)
+  await page.keyboard.up('w')
+
+  const after = await page.evaluate(() => {
+    const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+    return { position: { ...state.player.position }, yaw: state.player.cameraYaw }
+  })
+  expect(after.yaw).toBeGreaterThan(1)
+  expect(after.position.z - before.position.z).toBeGreaterThan(2.2)
 })
 
 test('touch dpad up moves toward the first target and touch chop hits it', async ({ page }) => {

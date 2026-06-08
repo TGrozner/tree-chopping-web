@@ -32,7 +32,12 @@ export type Tree = {
   rollAngle: number
   logAngularVelocity: number
   splitDone: boolean
+  splitStage: number
   impactDone: boolean
+  impactedTreeIds: string[]
+  shakeTimer: number
+  shakeDirection: Vec2
+  cutProgress: number
   scale: number
   tint: string
   canopy: 'cone' | 'round' | 'wide'
@@ -56,6 +61,8 @@ export type Log = {
   rollAngle: number
   angularVelocity: number
   splitDone: boolean
+  scale: number
+  age: number
 }
 
 export type WoodItem = {
@@ -79,6 +86,7 @@ export type Station = {
 export type Player = {
   position: Vec2
   facing: Vec2
+  cameraYaw: number
   speed: number
 }
 
@@ -87,6 +95,7 @@ export type GameInput = {
   down: boolean
   left: boolean
   right: boolean
+  lookDeltaX: number
   chopHeld: boolean
   chopRequests: number
   interactRequests: number
@@ -106,7 +115,7 @@ export type SwingState = {
 
 export type FeedbackEvent = {
   id: number
-  kind: 'hit' | 'fall' | 'impact' | 'collect' | 'upgrade' | 'deposit' | 'blocked' | 'whiff' | 'prestige'
+  kind: 'hit' | 'fall' | 'impact' | 'split' | 'collect' | 'upgrade' | 'deposit' | 'blocked' | 'whiff' | 'prestige'
   label: string
   position: Vec2
   age: number
@@ -178,6 +187,7 @@ export type TreeChoppingTestApi = {
   teleportHome: () => void
   movePlayerTo: (x: number, z: number) => void
   face: (x: number, z: number) => void
+  look: (movementX: number) => void
   reset: () => void
 }
 

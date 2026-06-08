@@ -1,9 +1,9 @@
-import { add, clamp, distance, distanceSq, dot, lengthSq, nearestPointOnSegment, normalize, scale, sub, vec } from './math'
+import { add, clamp, distance, distanceSq, dot, lengthSq, nearestPointOnSegment, normalize, rotate, scale, sub, vec } from './math'
 import { terrainHeightAt } from './terrain'
 import { AXE_CHOP_POWER, AXE_COSTS, AXE_NAMES, AXE_WOOD_MULTIPLIER, BACKPACK_CAPS, BACKPACK_COSTS, TUNABLES, WOOD_TYPES, emptyInventory } from './tunables'
-import type { FeedbackEvent, GameInput, GameState, Inventory, Station, Tree, Vec2, WoodItem, WoodType } from './types'
+import type { FeedbackEvent, GameInput, GameState, Inventory, Log, Station, Tree, Vec2, WoodItem, WoodType } from './types'
 
-type Target = { type: 'tree'; tree: Tree; score: number } | { type: 'log'; tree: Tree; score: number }
+type Target = { type: 'tree'; tree: Tree; score: number } | { type: 'log'; tree: Tree; score: number } | { type: 'sublog'; log: Log; score: number }
 
 export const inventoryTotal = (inventory: Inventory): number => WOOD_TYPES.reduce((sum, type) => sum + inventory[type], 0)
 export const backpackCapacity = (state: GameState): number => BACKPACK_CAPS[Math.min(state.backpackTier, BACKPACK_CAPS.length - 1)]
@@ -52,6 +52,13 @@ const getTreePhysicsTip = (tree: Tree): Vec2 => {
 
 const getFallenTreeCenter = (tree: Tree): Vec2 => add(tree.position, scale(tree.fallDirection, TUNABLES.treeHeight * tree.scale * 0.45))
 
+const getSubLogHalfLength = (log: Log): number => TUNABLES.treeHeight * log.scale * 0.22
+
+const getSubLogEndPoints = (log: Log): [Vec2, Vec2] => [
+  add(log.position, scale(log.direction, -getSubLogHalfLength(log))),
+  add(log.position, scale(log.direction, getSubLogHalfLength(log))),
+]
+
 const treeMass = (tree: Tree): number => Math.max(0.65, tree.scale * (tree.kind === 'veteran' || tree.kind === 'mythic' ? 1.35 : 1))
 
 const terrainDownhillAt = (position: Vec2): Vec2 => {
@@ -62,6 +69,8 @@ const terrainDownhillAt = (position: Vec2): Vec2 => {
 }
 
 const logRadius = (tree: Tree): number => TUNABLES.logRollRadius * Math.max(0.72, tree.scale)
+
+const yawToFacing = (yaw: number): Vec2 => vec(Math.cos(yaw), Math.sin(yaw))
 
 const logRollDirection = (tree: Tree): Vec2 => {
   const side = normalize(vec(-tree.fallDirection.z, tree.fallDirection.x), vec(0, 1))
@@ -92,6 +101,13 @@ export const findTreeTarget = (state: GameState): Tree | null => {
 }
 
 export const findLogTarget = (state: GameState): Tree | null => {
+  const sticky = state.trees.find((tree) => tree.id === state.swing.lastTargetId && tree.status === 'fallen' && !tree.splitDone)
+  if (sticky) {
+    const nearest = nearestPointOnSegment(state.player.position, sticky.position, getTreePhysicsTip(sticky))
+    const stickyScore = targetScore(state, nearest, TUNABLES.logTargetAssistRadius, logTargetRange(state) + 0.7, 0.45)
+    if (stickyScore !== null) return sticky
+  }
+
   let best: Target | null = null
   const range = logTargetRange(state)
   for (const tree of state.trees) {
@@ -104,19 +120,36 @@ export const findLogTarget = (state: GameState): Tree | null => {
   return best?.type === 'log' ? best.tree : null
 }
 
+const findSubLogTarget = (state: GameState): Log | null => {
+  let best: { log: Log; score: number } | null = null
+  const range = logTargetRange(state) + 0.2
+  for (const log of state.logs) {
+    if (log.status !== 'landed' || log.splitDone) continue
+    const [start, end] = getSubLogEndPoints(log)
+    const nearest = nearestPointOnSegment(state.player.position, start, end)
+    const score = targetScore(state, nearest, TUNABLES.logTargetAssistRadius * 0.82, range, 1.4)
+    if (score === null) continue
+    if (!best || score < best.score) best = { log, score }
+  }
+  return best?.log ?? null
+}
+
 const findTarget = (state: GameState): Target | null => {
   const logTree = findLogTarget(state)
   if (logTree) return { type: 'log', tree: logTree, score: distanceSq(getFallenTreeCenter(logTree), state.player.position) }
 
+  const subLog = findSubLogTarget(state)
+  if (subLog) return { type: 'sublog', log: subLog, score: distanceSq(subLog.position, state.player.position) }
+
   const tree = findTreeTarget(state)
-  if (!tree && !logTree) return null
+  if (!tree && !logTree && !subLog) return null
   if (!tree) return null
   return { type: 'tree', tree, score: distanceSq(tree.position, state.player.position) }
 }
 
 const updateTarget = (state: GameState): void => {
   const target = findTarget(state)
-  state.currentTargetId = target?.tree.id ?? null
+  state.currentTargetId = target?.type === 'sublog' ? target.log.id : target?.tree.id ?? null
 }
 
 const updateActiveStation = (state: GameState): void => {
@@ -135,18 +168,38 @@ const isTooHard = (state: GameState, minAxeTier: number): boolean => state.axeTi
 
 const tierName = (tier: number): string => AXE_NAMES[Math.min(tier, AXE_NAMES.length - 1)]
 
-const fellTree = (state: GameState, tree: Tree, direction: Vec2, isCascade: boolean): void => {
+const fellTree = (state: GameState, tree: Tree, direction: Vec2, isCascade: boolean, impulseMultiplier = 1): void => {
   if (tree.status !== 'standing') return
   tree.status = 'falling'
   tree.health = 0
   tree.fallDirection = normalize(direction, vec(1, 0))
   tree.fallProgress = 0
   tree.fallAngle = 0.08
-  tree.angularVelocity = TUNABLES.treeInitialAngularVelocity / treeMass(tree)
+  const cascadeBoost = isCascade ? TUNABLES.cascadeAngularVelocityMultiplier : 1
+  tree.angularVelocity = (TUNABLES.treeInitialAngularVelocity * cascadeBoost * impulseMultiplier) / treeMass(tree)
   tree.impactDone = false
+  tree.impactedTreeIds = []
+  tree.shakeTimer = 0
   state.stats.treesFelled += 1
   if (isCascade) state.stats.cascades += 1
   addFeedback(state, isCascade ? 'impact' : 'fall', isCascade ? 'cascade' : 'fall', tree.position)
+}
+
+const impactStandingTree = (state: GameState, source: Tree, other: Tree, direction: Vec2, damage: number): boolean => {
+  other.health -= damage
+  other.cutProgress = clamp(other.cutProgress + damage / Math.max(other.maxHealth, 1), 0, 1)
+  other.shakeTimer = TUNABLES.treeShakeDuration * 1.25
+  other.shakeDirection = normalize(direction, vec(1, 0))
+  addFeedback(state, 'impact', `-${damage}`, other.position)
+  if (other.health > 0) return false
+
+  const impulseMultiplier = clamp(
+    1 + (damage / Math.max(other.maxHealth, 1)) * 0.32 + treeMass(source) * 0.08,
+    1,
+    TUNABLES.cascadeImpulseMaxMultiplier,
+  )
+  fellTree(state, other, direction, true, impulseMultiplier)
+  return true
 }
 
 const primeFallenTreeLog = (state: GameState, tree: Tree, impactAngularVelocity: number): void => {
@@ -161,20 +214,17 @@ const primeFallenTreeLog = (state: GameState, tree: Tree, impactAngularVelocity:
   tree.logAngularVelocity = dot(tree.logVelocity, rollDirection) / logRadius(tree)
 }
 
-const spawnWoodItems = (state: GameState, tree: Tree): void => {
-  if (tree.splitDone) return
-  tree.splitDone = true
-  const pieces = clamp(Math.ceil(tree.reward / 2), 2, 6)
-  let remaining = tree.reward
-  const center = getFallenTreeCenter(tree)
+const spawnWoodItemsAt = (state: GameState, idPrefix: string, type: WoodType, reward: number, center: Vec2, direction: Vec2): void => {
+  const pieces = clamp(Math.ceil(reward / 2), 2, 6)
+  let remaining = reward
   for (let index = 0; index < pieces; index += 1) {
     const amount = Math.ceil(remaining / (pieces - index))
     remaining -= amount
     const side = index - (pieces - 1) * 0.5
-    const offset = add(scale(tree.fallDirection, side * 0.45), vec(-tree.fallDirection.z * (0.4 + index * 0.08), tree.fallDirection.x * (0.4 + index * 0.08)))
+    const offset = add(scale(direction, side * 0.45), vec(-direction.z * (0.4 + index * 0.08), direction.x * (0.4 + index * 0.08)))
     const item: WoodItem = {
-      id: `${tree.id}-wood-${index}`,
-      type: tree.woodType,
+      id: `${idPrefix}-wood-${index}`,
+      type,
       amount,
       position: add(center, offset),
       velocity: scale(normalize(offset, vec(1, 0)), 1.8 + index * 0.2),
@@ -183,8 +233,53 @@ const spawnWoodItems = (state: GameState, tree: Tree): void => {
     }
     state.woodItems.push(item)
   }
+}
+
+const spawnWoodItems = (state: GameState, tree: Tree): void => {
+  if (tree.splitDone) return
+  tree.splitDone = true
+  const center = getFallenTreeCenter(tree)
+  spawnWoodItemsAt(state, tree.id, tree.woodType, tree.reward, center, tree.fallDirection)
   state.stats.logsSplit += 1
-  addFeedback(state, 'hit', 'split', center)
+  addFeedback(state, 'split', 'split', center)
+}
+
+const spawnHalfLogs = (state: GameState, tree: Tree): void => {
+  if (tree.splitDone) return
+  tree.splitDone = true
+  tree.splitStage = 1
+  const center = getFallenTreeCenter(tree)
+  const side = normalize(vec(-tree.fallDirection.z, tree.fallDirection.x), vec(0, 1))
+  const rewardA = Math.max(1, Math.ceil(tree.reward * 0.5))
+  const rewardB = Math.max(1, tree.reward - rewardA)
+  const baseHealth = Math.max(1, Math.ceil(tree.logMaxHealth * TUNABLES.halfLogHealthMultiplier))
+  const logRewards = [rewardA, rewardB]
+  for (let index = 0; index < 2; index += 1) {
+    const offsetSide = index === 0 ? -0.48 : 0.48
+    const log: Log = {
+      id: `${tree.id}-half-${index}`,
+      treeId: tree.id,
+      kind: tree.kind,
+      woodType: tree.woodType,
+      position: add(center, scale(side, offsetSide)),
+      direction: normalize(add(tree.fallDirection, scale(side, offsetSide * 0.22)), tree.fallDirection),
+      velocity: scale(side, (index === 0 ? -1 : 1) * TUNABLES.halfLogLaunchSpeed),
+      health: baseHealth,
+      maxHealth: baseHealth,
+      minAxeTier: tree.minAxeTier,
+      reward: logRewards[index],
+      status: 'landed',
+      fallProgress: 1,
+      rollAngle: 0,
+      angularVelocity: (index === 0 ? -1 : 1) * 3.5,
+      splitDone: false,
+      scale: tree.scale * 0.74,
+      age: 0,
+    }
+    state.logs.push(log)
+  }
+  state.stats.logsSplit += 1
+  addFeedback(state, 'split', 'half logs', center)
 }
 
 const applyTreeHit = (state: GameState, tree: Tree, comboMultiplier: number): void => {
@@ -197,6 +292,9 @@ const applyTreeHit = (state: GameState, tree: Tree, comboMultiplier: number): vo
 
   const damage = chopDamage(state, comboMultiplier)
   tree.health -= damage
+  tree.cutProgress = clamp(tree.cutProgress + damage / Math.max(tree.maxHealth, 1), 0, 1)
+  tree.shakeTimer = TUNABLES.treeShakeDuration
+  tree.shakeDirection = normalize(sub(tree.position, state.player.position), state.player.facing)
   state.stats.hits += 1
   addFeedback(state, 'hit', `-${damage}`, tree.position)
   setMessage(state, `${tree.kind} ${Math.max(0, tree.health)}/${tree.maxHealth}`)
@@ -213,10 +311,39 @@ const applyLogHit = (state: GameState, tree: Tree, comboMultiplier: number): voi
 
   const damage = chopDamage(state, comboMultiplier)
   tree.logHealth -= damage
+  tree.shakeTimer = TUNABLES.treeShakeDuration * 0.6
+  tree.shakeDirection = normalize(sub(getFallenTreeCenter(tree), state.player.position), tree.fallDirection)
   state.stats.hits += 1
   addFeedback(state, 'hit', `-${damage}`, getFallenTreeCenter(tree))
   setMessage(state, `${formatWood(tree.woodType)} trunk ${Math.max(0, tree.logHealth)}/${tree.logMaxHealth}`)
-  if (tree.logHealth <= 0) spawnWoodItems(state, tree)
+  if (tree.logHealth <= 0) {
+    if (tree.reward >= TUNABLES.halfLogMinReward || tree.kind !== 'sapling') spawnHalfLogs(state, tree)
+    else spawnWoodItems(state, tree)
+  }
+}
+
+const applySubLogHit = (state: GameState, log: Log, comboMultiplier: number): void => {
+  if (isTooHard(state, log.minAxeTier)) {
+    state.stats.blockedHits += 1
+    addFeedback(state, 'blocked', tierName(log.minAxeTier), log.position)
+    setMessage(state, `Fallen ${log.kind} needs ${tierName(log.minAxeTier)} or better.`)
+    return
+  }
+
+  const damage = chopDamage(state, comboMultiplier)
+  log.health -= damage
+  log.velocity = add(log.velocity, scale(normalize(sub(log.position, state.player.position), log.direction), 1.05 + damage * 0.08))
+  log.angularVelocity += 1.8 + damage * 0.2
+  state.stats.hits += 1
+  addFeedback(state, 'hit', `-${damage}`, log.position)
+  setMessage(state, `${formatWood(log.woodType)} half-log ${Math.max(0, log.health)}/${log.maxHealth}`)
+  if (log.health > 0) return
+
+  log.status = 'split'
+  log.splitDone = true
+  spawnWoodItemsAt(state, log.id, log.woodType, log.reward, log.position, log.direction)
+  state.stats.logsSplit += 1
+  addFeedback(state, 'split', 'chunks', log.position)
 }
 
 const applySwingHit = (state: GameState): void => {
@@ -226,7 +353,7 @@ const applySwingHit = (state: GameState): void => {
   const comboMultiplier = finalCombo ? TUNABLES.comboFinalMultiplier : 1
   state.swing.combo = finalCombo ? 0 : nextCombo
   state.swing.comboTimer = TUNABLES.comboWindow
-  state.swing.lastTargetId = target?.tree.id ?? null
+  state.swing.lastTargetId = target?.type === 'sublog' ? target.log.id : target?.tree.id ?? null
 
   if (!target) {
     addFeedback(state, 'whiff', 'miss', state.player.position)
@@ -234,10 +361,11 @@ const applySwingHit = (state: GameState): void => {
     return
   }
 
-  const targetPosition = target.type === 'tree' ? target.tree.position : getFallenTreeCenter(target.tree)
+  const targetPosition = target.type === 'tree' ? target.tree.position : target.type === 'log' ? getFallenTreeCenter(target.tree) : target.log.position
   state.player.facing = normalize(sub(targetPosition, state.player.position), state.player.facing)
   if (target.type === 'tree') applyTreeHit(state, target.tree, comboMultiplier)
-  else applyLogHit(state, target.tree, comboMultiplier)
+  else if (target.type === 'log') applyLogHit(state, target.tree, comboMultiplier)
+  else applySubLogHit(state, target.log, comboMultiplier)
 }
 
 export const requestSwing = (state: GameState): void => {
@@ -325,9 +453,16 @@ const resolvePlayerCollisions = (state: GameState, proposed: Vec2): Vec2 => {
 }
 
 const updatePlayer = (state: GameState, input: GameInput, dt: number): void => {
+  if (input.lookDeltaX !== 0) {
+    state.player.cameraYaw += input.lookDeltaX * TUNABLES.mouseLookSensitivity
+    input.lookDeltaX = 0
+  }
+
+  const cameraForward = yawToFacing(state.player.cameraYaw)
+  const cameraRight = rotate(cameraForward, Math.PI * 0.5)
   const forward = (input.up ? 1 : 0) - (input.down ? 1 : 0)
   const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0)
-  const move = vec(forward, strafe)
+  const move = add(scale(cameraForward, forward), scale(cameraRight, strafe))
   const moving = Math.abs(move.x) + Math.abs(move.z) > 0
   if (!moving) {
     state.player.speed = 0
@@ -356,18 +491,31 @@ const updateFallingTrees = (state: GameState, dt: number): void => {
     tree.fallAngle = clamp(tree.fallAngle + tree.angularVelocity * dt, 0, TUNABLES.treeGroundAngle)
     tree.fallProgress = clamp(tree.fallAngle / TUNABLES.treeGroundAngle, 0, 1)
 
-    if (!tree.impactDone && tree.fallAngle >= TUNABLES.treeImpactAngle) {
-      tree.impactDone = true
+    if (tree.fallAngle >= TUNABLES.treeSweepStartAngle) {
       const trunkEnd = getTreePhysicsTip(tree)
-      const impactDamage = TUNABLES.treeImpactDamage + Math.floor(tree.angularVelocity * mass * 0.45)
+      const trunkLength = Math.max(distance(tree.position, trunkEnd), 0.0001)
+      const energy = Math.max(0.1, tree.angularVelocity * mass)
       for (const other of state.trees) {
         if (other.id === tree.id || other.status !== 'standing') continue
+        const impactKey = `fall:${other.id}`
+        if (tree.impactedTreeIds.includes(impactKey)) continue
         const nearest = nearestPointOnSegment(other.position, tree.position, trunkEnd)
-        if (distance(other.position, nearest) > TUNABLES.treeImpactRadius * other.scale) continue
-        other.health -= impactDamage
-        addFeedback(state, 'impact', 'hit', other.position)
-        if (other.health <= 0) fellTree(state, other, sub(other.position, tree.position), true)
+        const contactRadius = TUNABLES.treeImpactRadius * Math.max(0.72, (tree.scale + other.scale) * 0.5)
+        if (distance(other.position, nearest) > contactRadius) continue
+        tree.impactedTreeIds.push(impactKey)
+        const alongTrunk = clamp(distance(tree.position, nearest) / trunkLength, 0, 1)
+        const impactDamage = Math.ceil(
+          (TUNABLES.treeImpactDamage + energy * TUNABLES.treeImpactEnergyDamage) *
+            Math.max(0.82, tree.scale) *
+            (0.72 + alongTrunk * 0.68),
+        )
+        impactStandingTree(state, tree, other, normalize(sub(other.position, tree.position), tree.fallDirection), impactDamage)
       }
+    }
+
+    if (!tree.impactDone && tree.fallAngle >= TUNABLES.treeImpactAngle) {
+      tree.impactDone = true
+      addFeedback(state, 'impact', 'thud', getFallenTreeCenter(tree))
     }
 
     if (tree.fallAngle >= TUNABLES.treeGroundAngle) {
@@ -378,6 +526,29 @@ const updateFallingTrees = (state: GameState, dt: number): void => {
       tree.angularVelocity = 0
       primeFallenTreeLog(state, tree, impactAngularVelocity)
     }
+  }
+}
+
+const applyRollingLogImpacts = (state: GameState, tree: Tree): void => {
+  const speed = Math.sqrt(lengthSq(tree.logVelocity))
+  if (speed < TUNABLES.logImpactMinSpeed) return
+
+  const trunkEnd = getTreePhysicsTip(tree)
+  const mass = treeMass(tree)
+  for (const other of state.trees) {
+    if (other.id === tree.id || other.status !== 'standing') continue
+    const impactKey = `roll:${other.id}`
+    if (tree.impactedTreeIds.includes(impactKey)) continue
+    const nearest = nearestPointOnSegment(other.position, tree.position, trunkEnd)
+    const contactRadius = TUNABLES.logImpactRadius * Math.max(0.78, (tree.scale + other.scale) * 0.5)
+    if (distance(other.position, nearest) > contactRadius) continue
+
+    tree.impactedTreeIds.push(impactKey)
+    const impactDamage = Math.ceil((TUNABLES.logImpactDamage + speed * mass * 1.15) * Math.max(0.85, tree.scale))
+    const impactDirection = normalize(sub(other.position, nearest), normalize(tree.logVelocity, tree.fallDirection))
+    const knockedDown = impactStandingTree(state, tree, other, impactDirection, impactDamage)
+    tree.logVelocity = scale(tree.logVelocity, knockedDown ? 0.72 : 0.38)
+    tree.logAngularVelocity *= knockedDown ? 0.72 : 0.38
   }
 }
 
@@ -397,11 +568,34 @@ const updateFallenTrees = (state: GameState, dt: number): void => {
     tree.rollAngle += rollDistance / logRadius(tree)
     tree.logAngularVelocity = rollDistance / Math.max(dt, 0.0001) / logRadius(tree)
     tree.logAngularVelocity *= Math.exp(-TUNABLES.logAngularDamping * dt * 0.15)
+    applyRollingLogImpacts(state, tree)
 
     if (Math.abs(tree.logAngularVelocity) < 0.03 && distanceSq(tree.logVelocity, vec(0, 0)) < 0.01) {
       tree.logVelocity = vec(0, 0)
       tree.logAngularVelocity = 0
     }
+  }
+}
+
+const updateSubLogs = (state: GameState, dt: number): void => {
+  for (const log of state.logs) {
+    if (log.status !== 'landed' || log.splitDone) continue
+    log.age += dt
+    log.position = add(log.position, scale(log.velocity, dt))
+    log.velocity = scale(log.velocity, Math.exp(-TUNABLES.logFriction * 0.92 * dt))
+    const speed = Math.sqrt(lengthSq(log.velocity))
+    log.rollAngle += speed * dt / Math.max(0.12, TUNABLES.logRollRadius * log.scale)
+    log.angularVelocity *= Math.exp(-TUNABLES.logAngularDamping * 0.35 * dt)
+    if (speed < 0.03 && Math.abs(log.angularVelocity) < 0.05) {
+      log.velocity = vec(0, 0)
+      log.angularVelocity = 0
+    }
+  }
+}
+
+const updateTreeReactions = (state: GameState, dt: number): void => {
+  for (const tree of state.trees) {
+    if (tree.shakeTimer > 0) tree.shakeTimer = Math.max(0, tree.shakeTimer - dt)
   }
 }
 
@@ -539,6 +733,7 @@ const updateFeedback = (state: GameState, dt: number): void => {
 export const teleportHome = (state: GameState): void => {
   state.player.position = { ...state.spawn }
   state.player.facing = vec(1, 0)
+  state.player.cameraYaw = 0
   state.player.speed = 0
   addFeedback(state, 'deposit', 'home', state.spawn)
   setMessage(state, 'Returned to summit hub.')
@@ -574,8 +769,10 @@ export const stepGame = (state: GameState, input: GameInput, dt: number): void =
   updateSwing(state, safeDt)
   updateFallingTrees(state, safeDt)
   updateFallenTrees(state, safeDt)
+  updateSubLogs(state, safeDt)
   updateWoodItems(state, safeDt)
   updateFeedback(state, safeDt)
+  updateTreeReactions(state, safeDt)
   updateActiveStation(state)
   updateTarget(state)
 }
@@ -585,6 +782,7 @@ export const createEmptyInput = (): GameInput => ({
   down: false,
   left: false,
   right: false,
+  lookDeltaX: 0,
   chopHeld: false,
   chopRequests: 0,
   interactRequests: 0,

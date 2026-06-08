@@ -3,7 +3,7 @@ import { createWorld } from '../game/createWorld'
 import { getDebugSnapshot } from '../game/debug'
 import { createEmptyInput, stepGame } from '../game/systems'
 import { normalize, vec } from '../game/math'
-import type { GameInput, GameState } from '../game/types'
+import type { FeedbackEvent, GameInput, GameState } from '../game/types'
 
 export type MoveInputKey = 'up' | 'down' | 'left' | 'right'
 
@@ -17,7 +17,54 @@ const keyToInput = (input: GameInput, code: string, value: boolean): void => {
 export const useTreeChoppingGame = () => {
   const stateRef = useRef<GameState>(createWorld())
   const inputRef = useRef<GameInput>(createEmptyInput())
+  const lookHeldRef = useRef(false)
+  const audioRef = useRef<AudioContext | null>(null)
+  const playedFeedbackRef = useRef<Set<number>>(new Set())
   const [, forceRender] = useState(0)
+
+  const ensureAudio = useCallback((): AudioContext | null => {
+    if (audioRef.current) {
+      void audioRef.current.resume()
+      return audioRef.current
+    }
+    const contextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!contextCtor) return null
+    const context = new contextCtor()
+    audioRef.current = context
+    return context
+  }, [])
+
+  const playFeedbackSound = useCallback((event: FeedbackEvent): void => {
+    const context = audioRef.current
+    if (!context) return
+    const now = context.currentTime
+    const output = context.createGain()
+    output.connect(context.destination)
+
+    const isThud = event.kind === 'impact' || event.kind === 'fall'
+    const isSplit = event.kind === 'split'
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    oscillator.connect(gain)
+    gain.connect(output)
+    oscillator.type = isThud ? 'sine' : isSplit ? 'sawtooth' : 'triangle'
+    oscillator.frequency.setValueAtTime(isThud ? 74 : isSplit ? 220 : 165, now)
+    oscillator.frequency.exponentialRampToValueAtTime(isThud ? 38 : isSplit ? 130 : 92, now + (isThud ? 0.22 : 0.08))
+    gain.gain.setValueAtTime(isThud ? 0.18 : isSplit ? 0.09 : 0.055, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + (isThud ? 0.28 : 0.11))
+    output.gain.setValueAtTime(0.75, now)
+    oscillator.start(now)
+    oscillator.stop(now + (isThud ? 0.3 : 0.13))
+  }, [])
+
+  const playNewFeedbackSounds = useCallback((): void => {
+    for (const event of stateRef.current.feedback) {
+      if (playedFeedbackRef.current.has(event.id)) continue
+      playedFeedbackRef.current.add(event.id)
+      if (!['hit', 'impact', 'fall', 'split'].includes(event.kind)) continue
+      playFeedbackSound(event)
+    }
+  }, [playFeedbackSound])
 
   const setMoveInput = useCallback((key: MoveInputKey, value: boolean): void => {
     inputRef.current[key] = value
@@ -51,6 +98,7 @@ export const useTreeChoppingGame = () => {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      ensureAudio()
       keyToInput(inputRef.current, event.code, true)
       if (event.code === 'Space') setChopHeld(true)
       if ((event.code === 'KeyE' || event.code === 'Enter') && !event.repeat) requestInteract()
@@ -61,24 +109,51 @@ export const useTreeChoppingGame = () => {
       keyToInput(inputRef.current, event.code, false)
       if (event.code === 'Space') setChopHeld(false)
     }
-    const onMouseDown = (): void => {
+    const onMouseDown = (event: MouseEvent): void => {
+      ensureAudio()
+      if (event.button === 2) {
+        lookHeldRef.current = true
+        event.preventDefault()
+        return
+      }
+      if (event.button !== 0) return
+      if (event.target instanceof HTMLCanvasElement && document.pointerLockElement !== event.target) {
+        event.target.requestPointerLock?.()
+      }
       setChopHeld(true)
     }
-    const onMouseUp = (): void => {
+    const onMouseUp = (event: MouseEvent): void => {
+      if (event.button === 2) {
+        lookHeldRef.current = false
+        event.preventDefault()
+        return
+      }
+      if (event.button !== 0) return
       setChopHeld(false)
+    }
+    const onMouseMove = (event: MouseEvent): void => {
+      if (!document.pointerLockElement && !lookHeldRef.current) return
+      inputRef.current.lookDeltaX += event.movementX
+    }
+    const onContextMenu = (event: MouseEvent): void => {
+      if (event.target instanceof HTMLCanvasElement) event.preventDefault()
     }
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('mousedown', onMouseDown)
     window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('contextmenu', onContextMenu)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('mousedown', onMouseDown)
       window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('contextmenu', onContextMenu)
     }
-  }, [requestDeposit, requestInteract, requestTeleport, setChopHeld])
+  }, [ensureAudio, requestDeposit, requestInteract, requestTeleport, setChopHeld])
 
   useEffect(() => {
     let raf = 0
@@ -87,12 +162,13 @@ export const useTreeChoppingGame = () => {
       const dt = Math.min((now - last) / 1000, 0.05)
       last = now
       stepGame(stateRef.current, inputRef.current, dt)
+      playNewFeedbackSounds()
       forceRender((value) => value + 1)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [playNewFeedbackSounds])
 
   useEffect(() => {
     window.__TREE_CHOPPING_TEST__ = {
@@ -129,11 +205,19 @@ export const useTreeChoppingGame = () => {
         forceRender((value) => value + 1)
       },
       face: (x: number, z: number) => {
-        stateRef.current.player.facing = normalize(vec(x, z), vec(0, 1))
+        const direction = normalize(vec(x, z), vec(1, 0))
+        stateRef.current.player.facing = direction
+        stateRef.current.player.cameraYaw = Math.atan2(direction.z, direction.x)
+        forceRender((value) => value + 1)
+      },
+      look: (movementX: number) => {
+        inputRef.current.lookDeltaX += movementX
+        stepGame(stateRef.current, inputRef.current, 1 / 60)
         forceRender((value) => value + 1)
       },
       reset: () => {
         stateRef.current = createWorld()
+        playedFeedbackRef.current.clear()
         forceRender((value) => value + 1)
       },
     }

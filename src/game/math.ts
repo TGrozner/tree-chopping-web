@@ -5,6 +5,11 @@ export const vec = (x: number, z: number): Vec2 => ({ x, z })
 export const add = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x + b.x, z: a.z + b.z })
 export const sub = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x - b.x, z: a.z - b.z })
 export const scale = (v: Vec2, amount: number): Vec2 => ({ x: v.x * amount, z: v.z * amount })
+export const rotate = (v: Vec2, radians: number): Vec2 => {
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  return { x: v.x * cos - v.z * sin, z: v.x * sin + v.z * cos }
+}
 export const dot = (a: Vec2, b: Vec2): number => a.x * b.x + a.z * b.z
 export const lengthSq = (v: Vec2): number => dot(v, v)
 export const distanceSq = (a: Vec2, b: Vec2): number => lengthSq(sub(a, b))
