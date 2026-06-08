@@ -92,6 +92,7 @@ export class Renderer {
   private readonly effects = new Map<number, THREE.Group>()
   private readonly targetRing: THREE.Mesh
   private readonly stationRing: THREE.Mesh
+  private readonly fallGuide: THREE.ArrowHelper
   private readonly axeHandle: THREE.Mesh
   private readonly axeHead: THREE.Mesh
 
@@ -150,6 +151,21 @@ export class Renderer {
     this.targetRing.visible = false
     this.scene.add(this.targetRing)
 
+    this.fallGuide = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 3.4, '#ffd166', 0.72, 0.34)
+    this.fallGuide.renderOrder = 8
+    this.fallGuide.traverse((object) => {
+      const guide = object as THREE.Object3D & { material?: THREE.Material | THREE.Material[] }
+      const materials = Array.isArray(guide.material) ? guide.material : guide.material ? [guide.material] : []
+      for (const material of materials) {
+        material.depthTest = false
+        material.depthWrite = false
+        material.transparent = true
+        material.opacity = 0.88
+      }
+    })
+    this.fallGuide.visible = false
+    this.scene.add(this.fallGuide)
+
     this.stationRing = new THREE.Mesh(
       new THREE.TorusGeometry(TUNABLES.stationRange, 0.035, 6, 64),
       new THREE.MeshBasicMaterial({ color: '#fff7df', transparent: true, opacity: 0.38 }),
@@ -161,11 +177,13 @@ export class Renderer {
 
   dispose(): void {
     this.scene.traverse((object) => {
-      const mesh = object as THREE.Mesh
-      if (!mesh.isMesh && object.type !== 'Sprite') return
-      const maybeMesh = object as THREE.Mesh
-      maybeMesh.geometry?.dispose()
-      const materialValue = maybeMesh.material as THREE.Material | THREE.Material[] | undefined
+      const disposable = object as THREE.Object3D & {
+        geometry?: THREE.BufferGeometry
+        material?: THREE.Material | THREE.Material[]
+      }
+      if (!disposable.geometry && !disposable.material && object.type !== 'Sprite') return
+      disposable.geometry?.dispose()
+      const materialValue = disposable.material
       const materials = Array.isArray(materialValue) ? materialValue : materialValue ? [materialValue] : []
       for (const material of materials) {
         const mapped = material as THREE.Material & { map?: THREE.Texture }
@@ -501,6 +519,7 @@ export class Renderer {
   private syncTargetRing(state: GameState): void {
     const targetTree = state.trees.find((tree) => tree.id === state.currentTargetId)
     const targetLog = state.logs.find((log) => log.id === state.currentTargetId && log.status === 'landed' && !log.splitDone)
+    this.fallGuide.visible = false
     if (targetTree) {
       this.targetRing.visible = true
       this.targetRing.scale.setScalar(targetTree.status === 'fallen' ? 0.82 : targetTree.scale * (targetTree.kind === 'sapling' ? 0.78 : 1.05))
@@ -512,6 +531,15 @@ export class Renderer {
             }
           : targetTree.position
       this.targetRing.position.copy(toThree(targetPosition, 0.08))
+      if (targetTree.status === 'standing') {
+        const fallDirection = new THREE.Vector3(targetTree.position.x - state.player.position.x, 0, targetTree.position.z - state.player.position.z).normalize()
+        if (fallDirection.lengthSq() > 0.001) {
+          this.fallGuide.visible = true
+          this.fallGuide.position.copy(toThree(targetTree.position, 0.62))
+          this.fallGuide.setDirection(fallDirection)
+          this.fallGuide.setLength(TUNABLES.treeHeight * targetTree.scale * 0.72, 0.72, 0.34)
+        }
+      }
     } else if (targetLog) {
       this.targetRing.visible = true
       this.targetRing.scale.setScalar(Math.max(0.52, targetLog.scale * 0.78))

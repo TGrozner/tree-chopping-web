@@ -172,6 +172,7 @@ const fellTree = (state: GameState, tree: Tree, direction: Vec2, isCascade: bool
   if (tree.status !== 'standing') return
   tree.status = 'falling'
   tree.health = 0
+  if (isCascade) tree.reward += TUNABLES.cascadeRewardBonus
   tree.fallDirection = normalize(direction, vec(1, 0))
   tree.fallProgress = 0
   tree.fallAngle = 0.08
@@ -282,31 +283,41 @@ const spawnHalfLogs = (state: GameState, tree: Tree): void => {
   addFeedback(state, 'split', 'half logs', center)
 }
 
-const applyTreeHit = (state: GameState, tree: Tree, comboMultiplier: number): void => {
+const hitLabel = (damage: number, comboMultiplier: number): string => (comboMultiplier > 1 ? `x${comboMultiplier} -${damage}` : `-${damage}`)
+
+const fallImpulseForHit = (tree: Tree, healthBeforeHit: number, damage: number, comboMultiplier: number): number => {
+  const comboImpulse = comboMultiplier > 1 ? TUNABLES.comboFallImpulseMultiplier - 1 : 0
+  const overkill = Math.max(0, damage - healthBeforeHit) / Math.max(tree.maxHealth, 1)
+  return clamp(1 + comboImpulse + overkill * TUNABLES.overkillFallImpulseMultiplier, 1, TUNABLES.cascadeImpulseMaxMultiplier)
+}
+
+const applyTreeHit = (state: GameState, tree: Tree, comboMultiplier: number): boolean => {
   if (isTooHard(state, tree.minAxeTier)) {
     state.stats.blockedHits += 1
     addFeedback(state, 'blocked', tierName(tree.minAxeTier), tree.position)
     setMessage(state, `${tree.kind} needs ${tierName(tree.minAxeTier)} or better.`)
-    return
+    return false
   }
 
   const damage = chopDamage(state, comboMultiplier)
+  const healthBeforeHit = tree.health
   tree.health -= damage
   tree.cutProgress = clamp(tree.cutProgress + damage / Math.max(tree.maxHealth, 1), 0, 1)
   tree.shakeTimer = TUNABLES.treeShakeDuration
   tree.shakeDirection = normalize(sub(tree.position, state.player.position), state.player.facing)
   state.stats.hits += 1
-  addFeedback(state, 'hit', `-${damage}`, tree.position)
-  setMessage(state, `${tree.kind} ${Math.max(0, tree.health)}/${tree.maxHealth}`)
-  if (tree.health <= 0) fellTree(state, tree, sub(tree.position, state.player.position), false)
+  addFeedback(state, 'hit', hitLabel(damage, comboMultiplier), tree.position)
+  setMessage(state, `${comboMultiplier > 1 ? 'Combo! ' : ''}${tree.kind} ${Math.max(0, tree.health)}/${tree.maxHealth}`)
+  if (tree.health <= 0) fellTree(state, tree, sub(tree.position, state.player.position), false, fallImpulseForHit(tree, healthBeforeHit, damage, comboMultiplier))
+  return true
 }
 
-const applyLogHit = (state: GameState, tree: Tree, comboMultiplier: number): void => {
+const applyLogHit = (state: GameState, tree: Tree, comboMultiplier: number): boolean => {
   if (isTooHard(state, tree.minAxeTier)) {
     state.stats.blockedHits += 1
     addFeedback(state, 'blocked', tierName(tree.minAxeTier), getFallenTreeCenter(tree))
     setMessage(state, `Fallen ${tree.kind} needs ${tierName(tree.minAxeTier)} or better.`)
-    return
+    return false
   }
 
   const damage = chopDamage(state, comboMultiplier)
@@ -320,20 +331,21 @@ const applyLogHit = (state: GameState, tree: Tree, comboMultiplier: number): voi
   tree.shakeTimer = TUNABLES.treeShakeDuration * 0.6
   tree.shakeDirection = normalize(sub(getFallenTreeCenter(tree), state.player.position), tree.fallDirection)
   state.stats.hits += 1
-  addFeedback(state, 'hit', `-${damage}`, getFallenTreeCenter(tree))
-  setMessage(state, `${formatWood(tree.woodType)} trunk ${Math.max(0, tree.logHealth)}/${tree.logMaxHealth}`)
+  addFeedback(state, 'hit', hitLabel(damage, comboMultiplier), getFallenTreeCenter(tree))
+  setMessage(state, `${comboMultiplier > 1 ? 'Combo! ' : ''}${formatWood(tree.woodType)} trunk ${Math.max(0, tree.logHealth)}/${tree.logMaxHealth}`)
   if (tree.logHealth <= 0) {
     if (tree.reward >= TUNABLES.halfLogMinReward || tree.kind !== 'sapling') spawnHalfLogs(state, tree)
     else spawnWoodItems(state, tree)
   }
+  return true
 }
 
-const applySubLogHit = (state: GameState, log: Log, comboMultiplier: number): void => {
+const applySubLogHit = (state: GameState, log: Log, comboMultiplier: number): boolean => {
   if (isTooHard(state, log.minAxeTier)) {
     state.stats.blockedHits += 1
     addFeedback(state, 'blocked', tierName(log.minAxeTier), log.position)
     setMessage(state, `Fallen ${log.kind} needs ${tierName(log.minAxeTier)} or better.`)
-    return
+    return false
   }
 
   const damage = chopDamage(state, comboMultiplier)
@@ -341,37 +353,49 @@ const applySubLogHit = (state: GameState, log: Log, comboMultiplier: number): vo
   log.velocity = add(log.velocity, scale(normalize(sub(log.position, state.player.position), log.direction), 1.05 + damage * 0.08))
   log.angularVelocity += 1.8 + damage * 0.2
   state.stats.hits += 1
-  addFeedback(state, 'hit', `-${damage}`, log.position)
-  setMessage(state, `${formatWood(log.woodType)} half-log ${Math.max(0, log.health)}/${log.maxHealth}`)
-  if (log.health > 0) return
+  addFeedback(state, 'hit', hitLabel(damage, comboMultiplier), log.position)
+  setMessage(state, `${comboMultiplier > 1 ? 'Combo! ' : ''}${formatWood(log.woodType)} half-log ${Math.max(0, log.health)}/${log.maxHealth}`)
+  if (log.health > 0) return true
 
   log.status = 'split'
   log.splitDone = true
   spawnWoodItemsAt(state, log.id, log.woodType, log.reward, log.position, log.direction)
   state.stats.logsSplit += 1
   addFeedback(state, 'split', 'chunks', log.position)
+  return true
 }
 
 const applySwingHit = (state: GameState): void => {
   const target = findTarget(state)
-  const nextCombo = state.swing.comboTimer > 0 ? Math.min(TUNABLES.comboMax, state.swing.combo + 1) : 1
-  const finalCombo = nextCombo >= TUNABLES.comboMax
-  const comboMultiplier = finalCombo ? TUNABLES.comboFinalMultiplier : 1
-  state.swing.combo = finalCombo ? 0 : nextCombo
-  state.swing.comboTimer = TUNABLES.comboWindow
   state.swing.lastTargetId = target?.type === 'sublog' ? target.log.id : target?.tree.id ?? null
 
   if (!target) {
+    state.swing.combo = 0
+    state.swing.comboTimer = 0
     addFeedback(state, 'whiff', 'miss', state.player.position)
     setMessage(state, 'No tree or log in swing range.')
     return
   }
 
+  const nextCombo = state.swing.comboTimer > 0 ? Math.min(TUNABLES.comboMax, state.swing.combo + 1) : 1
+  const finalCombo = nextCombo >= TUNABLES.comboMax
+  const comboMultiplier = finalCombo ? TUNABLES.comboFinalMultiplier : 1
   const targetPosition = target.type === 'tree' ? target.tree.position : target.type === 'log' ? getFallenTreeCenter(target.tree) : target.log.position
   state.player.facing = normalize(sub(targetPosition, state.player.position), state.player.facing)
-  if (target.type === 'tree') applyTreeHit(state, target.tree, comboMultiplier)
-  else if (target.type === 'log') applyLogHit(state, target.tree, comboMultiplier)
-  else applySubLogHit(state, target.log, comboMultiplier)
+  const hit =
+    target.type === 'tree'
+      ? applyTreeHit(state, target.tree, comboMultiplier)
+      : target.type === 'log'
+        ? applyLogHit(state, target.tree, comboMultiplier)
+        : applySubLogHit(state, target.log, comboMultiplier)
+
+  if (hit) {
+    state.swing.combo = finalCombo ? 0 : nextCombo
+    state.swing.comboTimer = TUNABLES.comboWindow
+  } else {
+    state.swing.combo = 0
+    state.swing.comboTimer = 0
+  }
 }
 
 export const requestSwing = (state: GameState): void => {
@@ -515,7 +539,8 @@ const updateFallingTrees = (state: GameState, dt: number): void => {
             Math.max(0.82, tree.scale) *
             (0.72 + alongTrunk * 0.68),
         )
-        impactStandingTree(state, tree, other, normalize(sub(other.position, tree.position), tree.fallDirection), impactDamage)
+        const knockedDown = impactStandingTree(state, tree, other, normalize(sub(other.position, tree.position), tree.fallDirection), impactDamage)
+        tree.angularVelocity *= knockedDown ? TUNABLES.treeSweepCascadeDamping : TUNABLES.treeSweepSurvivorDamping
       }
     }
 
@@ -553,8 +578,15 @@ const applyRollingLogImpacts = (state: GameState, tree: Tree): void => {
     const impactDamage = Math.ceil((TUNABLES.logImpactDamage + speed * mass * 1.15) * Math.max(0.85, tree.scale))
     const impactDirection = normalize(sub(other.position, nearest), normalize(tree.logVelocity, tree.fallDirection))
     const knockedDown = impactStandingTree(state, tree, other, impactDirection, impactDamage)
-    tree.logVelocity = scale(tree.logVelocity, knockedDown ? 0.72 : 0.38)
-    tree.logAngularVelocity *= knockedDown ? 0.72 : 0.38
+    if (knockedDown) {
+      tree.logVelocity = scale(tree.logVelocity, TUNABLES.logImpactCascadeDamping)
+      tree.logAngularVelocity *= TUNABLES.logImpactCascadeDamping
+    } else {
+      const rebound = scale(impactDirection, -speed * TUNABLES.logImpactBounce)
+      tree.position = add(tree.position, scale(impactDirection, -0.08))
+      tree.logVelocity = add(scale(tree.logVelocity, TUNABLES.logImpactSurvivorDamping), rebound)
+      tree.logAngularVelocity *= -TUNABLES.logImpactSurvivorDamping
+    }
   }
 }
 

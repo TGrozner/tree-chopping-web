@@ -21,6 +21,13 @@ const swing = (state: GameState, count = 1): void => {
   }
 }
 
+const swingUntilHit = (state: GameState): void => {
+  const input = createEmptyInput()
+  input.chopRequests = 1
+  stepGame(state, input, 1 / 60)
+  stepSeconds(state, TUNABLES.swingWindup + 1 / 60)
+}
+
 const holdChop = (state: GameState, seconds: number): void => {
   const input = createEmptyInput()
   input.chopHeld = true
@@ -65,6 +72,7 @@ describe('tree-chopping sbox loop', () => {
     expect(tree.fallAngle).toBeGreaterThan(0)
     expect(tree.angularVelocity).toBeGreaterThan(0)
     expect(state.stats.swings).toBe(3)
+    expect(state.feedback.some((event) => event.kind === 'hit' && event.label.startsWith('x2'))).toBe(true)
 
     stepSeconds(state, 2.1)
     expect(tree.status).toBe('fallen')
@@ -84,6 +92,52 @@ describe('tree-chopping sbox loop', () => {
     stepSeconds(state, 1.4)
     expect(backpackTotal(state)).toBeGreaterThanOrEqual(1)
     expect(state.stockpile.wood).toBe(0)
+  })
+
+  it('only builds combo from damaging hits', () => {
+    const state = createWorld()
+    const tree = starterTree(state)
+    state.trees = [tree]
+    standNear(state, tree)
+
+    swing(state, 2)
+    expect(state.swing.combo).toBe(2)
+    expect(tree.health).toBe(tree.maxHealth - 2)
+
+    state.player.position = vec(40, 40)
+    stepGame(state, createEmptyInput(), 1 / 60)
+    swing(state)
+    expect(state.stats.hits).toBe(2)
+    expect(state.swing.combo).toBe(0)
+
+    standNear(state, tree)
+    swing(state)
+    expect(state.stats.hits).toBe(3)
+    expect(tree.health).toBe(tree.maxHealth - 3)
+  })
+
+  it('gives combo finishers a stronger fall impulse', () => {
+    const baseline = createWorld()
+    const baselineTree = starterTree(baseline)
+    baseline.trees = [baselineTree]
+    baselineTree.health = 1
+    standNear(baseline, baselineTree)
+    swingUntilHit(baseline)
+    expect(baselineTree.status).toBe('falling')
+    const baselineAngularVelocity = baselineTree.angularVelocity
+
+    const combo = createWorld()
+    const comboTree = starterTree(combo)
+    combo.trees = [comboTree]
+    comboTree.health = 3
+    standNear(combo, comboTree)
+    swing(combo, 2)
+    expect(comboTree.status).toBe('standing')
+    swingUntilHit(combo)
+
+    expect(comboTree.status).toBe('falling')
+    expect(comboTree.angularVelocity).toBeGreaterThan(baselineAngularVelocity * 1.18)
+    expect(combo.feedback.some((event) => event.kind === 'hit' && event.label.startsWith('x2'))).toBe(true)
   })
 
   it('supports hold-to-chop without repeated input spam', () => {
@@ -130,12 +184,66 @@ describe('tree-chopping sbox loop', () => {
     source.logAngularVelocity = 8
     source.impactedTreeIds = []
     target.position = vec(2.6, 0.45)
+    const targetReward = target.reward
 
     stepGame(state, createEmptyInput(), 1 / 60)
 
     expect(state.stats.cascades).toBeGreaterThanOrEqual(1)
     expect(target.status).toBe('falling')
+    expect(target.reward).toBe(targetReward + TUNABLES.cascadeRewardBonus)
     expect(source.logVelocity.z).toBeLessThan(3.6)
+  })
+
+  it('makes rolling trunks rebound when the impact target survives', () => {
+    const state = createWorld()
+    const source = starterTree(state)
+    const target = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!target) throw new Error('missing neighboring sapling')
+
+    state.trees = [source, target]
+    source.position = vec(0, 0)
+    source.status = 'fallen'
+    source.fallDirection = vec(1, 0)
+    source.fallAngle = TUNABLES.treeGroundAngle
+    source.logHealth = 2
+    source.logMaxHealth = 2
+    source.logVelocity = vec(0, 2.2)
+    source.logAngularVelocity = 7
+    source.impactedTreeIds = []
+    target.position = vec(2.6, 0.62)
+    target.health = 40
+    target.maxHealth = 40
+
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    expect(target.status).toBe('standing')
+    expect(target.health).toBeLessThan(target.maxHealth)
+    expect(source.logVelocity.z).toBeLessThan(0.45)
+    expect(source.logAngularVelocity).toBeLessThan(0)
+  })
+
+  it('damps a falling tree after it sweeps through a standing tree', () => {
+    const state = createWorld()
+    const source = starterTree(state)
+    const target = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!target) throw new Error('missing neighboring sapling')
+
+    state.trees = [source, target]
+    source.position = vec(0, 0)
+    source.status = 'falling'
+    source.fallDirection = vec(1, 0)
+    source.fallAngle = TUNABLES.treeSweepStartAngle
+    source.angularVelocity = 2.4
+    source.impactedTreeIds = []
+    target.position = vec(2.8, 0.35)
+    target.health = 40
+    target.maxHealth = 40
+
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    expect(target.status).toBe('standing')
+    expect(target.health).toBeLessThan(target.maxHealth)
+    expect(source.angularVelocity).toBeLessThan(2.4)
   })
 
   it('lets axe hits kick fallen trunks into new cascade impacts', () => {
@@ -251,6 +359,7 @@ describe('tree-chopping sbox loop', () => {
     swing(state, 1)
     expect((normal as Tree).health).toBe((normal as Tree).maxHealth)
     expect(state.stats.blockedHits).toBe(1)
+    expect(state.swing.combo).toBe(0)
     expect(state.message).toContain('Stone')
   })
 
