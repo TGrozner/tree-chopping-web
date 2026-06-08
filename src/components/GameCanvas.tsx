@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import { Renderer } from '../render/Renderer'
 import type { GameState } from '../game/types'
 
 type Props = {
-  stateRef: React.MutableRefObject<GameState>
+  stateRef: MutableRefObject<GameState>
 }
 
 export const GameCanvas = ({ stateRef }: Props) => {
