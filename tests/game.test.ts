@@ -9,6 +9,14 @@ const stepSeconds = (state: ReturnType<typeof createWorld>, seconds: number): vo
   for (let index = 0; index < count; index += 1) stepGame(state, createEmptyInput(), dt)
 }
 
+const fellFirstTreeAndCascade = (state: ReturnType<typeof createWorld>): void => {
+  state.player.position = vec(0, 1.2)
+  state.player.facing = vec(0, 1)
+  chop(state)
+  chop(state)
+  stepSeconds(state, 1.6)
+}
+
 describe('tree chopping vertical slice', () => {
   it('chops a standing tree into a fallen log', () => {
     const state = createWorld()
@@ -40,23 +48,16 @@ describe('tree chopping vertical slice', () => {
 
   it('splits logs, collects chunks, and upgrades the axe', () => {
     const state = createWorld()
+    fellFirstTreeAndCascade(state)
 
-    for (const treeId of ['tree-a', 'tree-b']) {
-      const tree = state.trees.find((candidate) => candidate.id === treeId)
-      if (!tree) throw new Error(`Missing ${treeId}`)
-      tree.status = 'fallen'
-      tree.fallDirection = vec(0, 1)
-      tree.fallProgress = 1
-      stepGame(state, createEmptyInput(), 0.016)
-    }
-
-    for (const log of state.logs) {
+    expect(state.logs.length).toBeGreaterThanOrEqual(2)
+    for (const log of state.logs.filter((candidate) => candidate.status === 'whole').slice(0, 2)) {
       state.player.position = { ...log.position }
       chop(state)
       chop(state)
+      stepGame(state, createEmptyInput(), 0.016)
     }
 
-    stepGame(state, createEmptyInput(), 0.016)
     expect(state.wood).toBe(6)
     expect(state.axeLevel).toBe(2)
     expect(state.stats.upgrades).toBe(1)
