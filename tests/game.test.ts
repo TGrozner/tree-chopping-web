@@ -188,6 +188,7 @@ describe('tree-chopping sbox loop', () => {
 
     expect(state.stats.hits).toBe(1)
     expect(tree.health).toBeLessThan(tree.maxHealth)
+    expect(tree.cutProgress).toBeGreaterThan(0)
   })
 
   it('gates harder trees behind the Stone axe tier', () => {

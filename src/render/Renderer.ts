@@ -19,6 +19,7 @@ const trunkColor = (tree: Tree): string => {
 
 const stationGeometry = new THREE.CylinderGeometry(1, 1, 0.12, 32)
 const stationPostGeometry = new THREE.CylinderGeometry(0.13, 0.16, 1.4, 8)
+const cutBandGeometry = new THREE.TorusGeometry(0.31, 0.018, 5, 18)
 
 const createTextSprite = (text: string, color = '#fff7df', background = 'rgba(17,25,13,0.72)'): THREE.Sprite => {
   const canvas = document.createElement('canvas')
@@ -174,6 +175,7 @@ export class Renderer {
     })
     stationGeometry.dispose()
     stationPostGeometry.dispose()
+    cutBandGeometry.dispose()
     delete (window as Window & { __TREE_CHOPPING_CAMERA__?: unknown }).__TREE_CHOPPING_CAMERA__
     this.renderer.dispose()
   }
@@ -283,12 +285,21 @@ export class Renderer {
     stump.castShadow = true
     stump.visible = false
     stump.name = 'stump'
+    const cutBands = [0, 1, 2].map((index) => {
+      const band = new THREE.Mesh(cutBandGeometry, new THREE.MeshLambertMaterial({ color: index % 2 === 0 ? '#2f1a0d' : '#f0d28f', transparent: true, opacity: 0.92 }))
+      band.name = `cut-band-${index}`
+      band.position.y = 0.72 + index * 0.22
+      band.rotation.x = Math.PI * 0.5
+      band.scale.set(1, 0.42, 1)
+      band.visible = false
+      return band
+    })
     if (tree.kind === 'mythic') {
       const glow = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), new THREE.MeshBasicMaterial({ color: '#d3fbff', transparent: true, opacity: 0.72 }))
       glow.position.y = trunkHeight + 1.8
       group.add(glow)
     }
-    group.add(trunk, crown, stump)
+    group.add(trunk, crown, stump, ...cutBands)
     group.scale.setScalar(tree.scale)
     group.position.copy(toThree(tree.position))
     this.scene.add(group)
@@ -311,6 +322,12 @@ export class Renderer {
       const stump = group.getObjectByName('stump')
       for (const child of group.children) {
         if (child.name !== 'stump') child.visible = !tree.splitDone
+      }
+      const visibleCutBands = Math.ceil(tree.cutProgress * 3)
+      for (const child of group.children) {
+        if (!child.name.startsWith('cut-band-')) continue
+        const index = Number(child.name.slice('cut-band-'.length))
+        child.visible = !tree.splitDone && tree.status === 'standing' && index < visibleCutBands
       }
       if (stump) stump.visible = false
       if (tree.splitDone) {
