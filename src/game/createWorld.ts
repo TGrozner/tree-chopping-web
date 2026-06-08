@@ -102,6 +102,12 @@ const createStarterSaplings = (rng: () => number): Tree[] => {
     makeTree('starter-sapling-001', 'sapling', 'wood', vec(-3.7, 1.35), 0.94, true),
     makeTree('starter-sapling-002', 'sapling', 'wood', vec(-3.5, -1.55), 0.92, true),
   ]
+  const chunky = makeTree('starter-deadwood-000', 'brittle', 'wood', vec(-2.2, 4.4), 1.08, true)
+  chunky.health = 6
+  chunky.maxHealth = 6
+  chunky.minAxeTier = 0
+  chunky.reward = 4
+  trees.push(chunky)
 
   let attempts = 0
   while (trees.length < TUNABLES.starterSaplings && attempts < 2000) {

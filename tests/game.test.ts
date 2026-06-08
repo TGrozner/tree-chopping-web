@@ -175,6 +175,28 @@ describe('tree-chopping sbox loop', () => {
     expect(state.woodItems.length).toBeGreaterThan(0)
   })
 
+  it('includes an early deadwood tree that demonstrates half-log splitting with hands', () => {
+    const state = createWorld()
+    const tree = state.trees.find((candidate) => candidate.id === 'starter-deadwood-000')
+    if (!tree) throw new Error('missing starter deadwood')
+    expect(tree.minAxeTier).toBe(0)
+    expect(tree.reward).toBeGreaterThanOrEqual(TUNABLES.halfLogMinReward)
+
+    standNear(state, tree)
+    swing(state, 5)
+    stepSeconds(state, 2.1)
+    expect(tree.status).toBe('fallen')
+
+    const fallenCenter = add(tree.position, scale(tree.fallDirection, 1.6))
+    state.player.position = add(fallenCenter, vec(-1.2, 0))
+    state.player.facing = normalize(sub(fallenCenter, state.player.position))
+    stepGame(state, createEmptyInput(), 1 / 60)
+    swing(state, 2)
+
+    expect(tree.splitStage).toBe(1)
+    expect(state.logs.filter((log) => log.treeId === tree.id)).toHaveLength(2)
+  })
+
   it('keeps swing targeting forgiving when the player is close but not precisely aimed', () => {
     const state = createWorld()
     const tree = starterTree(state)
