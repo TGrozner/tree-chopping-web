@@ -14,7 +14,7 @@ const fellFirstTreeAndCascade = (state: ReturnType<typeof createWorld>): void =>
   state.player.facing = vec(0, 1)
   chop(state)
   chop(state)
-  stepSeconds(state, 1.6)
+  stepSeconds(state, 2.6)
 }
 
 describe('tree chopping vertical slice', () => {
