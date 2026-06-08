@@ -1,0 +1,7 @@
+node_modules
+.DS_Store
+dist
+playwright-report
+test-results
+.vite
+.env
