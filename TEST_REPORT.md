@@ -2,51 +2,34 @@
 
 ## Current status
 
-Initial browser vertical slice scaffold created from ChatGPT via GitHub connector.
+The web prototype now targets `tree-chopping-sbox` target A: dry summit hub, dense starter forest, third-person beaver camera, rolling fallen trees, station economy, backpack/depot loop, and axe progression. Godot water, dams, barrages, and voxel digging remain intentionally out of scope.
 
-I could create and inspect repository files, but I could not run `npm install` or browser tests from this chat environment. The repository includes automated checks so the first local or GitHub Actions run can validate the implementation properly.
-
-## Commands to run locally
+## Commands run
 
 ```bash
-npm install
 npm run typecheck
 npm run test
 npm run build
-npx playwright install chromium
 npm run e2e
 ```
 
-Or all checks:
-
-```bash
-npm run verify
-```
+All passed locally on June 8, 2026.
 
 ## Automated coverage included
 
-- Unit tests for tree chopping into log.
-- Unit test for deterministic cascade reaction.
-- Unit test for log splitting, wood pickup, and axe upgrade.
-- Playwright test for the browser core loop through `window.__TREE_CHOPPING_TEST__`.
+- Unit tests for deterministic world generation, station layout, and dense starter forest.
+- Unit test for real swing timing into sapling fall, rolling fallen tree, split wood, and backpack pickup.
+- Unit test for Stone-tier gating on harder trees.
+- Unit test for Wood Depot deposit and Tools station axe upgrade.
+- Unit test for R summit return without world reset.
+- Playwright test for browser keyboard loop: swing, move to fallen tree, split, collect, move to depot, deposit, return hub.
+- Playwright controls test for no crosshair, keyboard movement, hold-to-chop, touch dpad/chop, and mobile HUD/control separation.
 - Playwright also fails on browser console errors during the tested loop.
 
 ## Known limitations
 
-- No water by design.
-- No voxel terrain.
-- No real rigid body physics yet.
-- Tree falls are deterministic semi-physics, not Rapier/Jolt simulation.
-- Visuals use procedural primitives only.
-- The first CI run is the source of truth because checks were not executed inside ChatGPT.
-
-## Manual verification target
-
-The minimum acceptable v0 is not just a compiling app. It must feel readable and responsive when playing the default loop:
-
-1. Move near the first tree.
-2. Chop until it falls.
-3. Watch it knock the second tree.
-4. Chop at least two fallen logs.
-5. Collect 6 wood.
-6. Confirm axe level reaches 2.
+- No water, dams, barrages, or voxel digging by design.
+- Tree physics are deterministic browser gameplay with rolling trunks rather than full rigid bodies.
+- Three.js visuals are procedural primitives, not imported source assets.
+- The economy is first-pass and tuned for proving the loop, not final pacing.
+- Build currently warns that the Three.js bundle chunk is above 500 kB.

@@ -1,13 +1,19 @@
+import { backpackCapacity, backpackTotal } from './systems'
 import type { DebugSnapshot, GameState } from './types'
 
 export const getDebugSnapshot = (state: GameState): DebugSnapshot => ({
-  wood: state.wood,
-  axeLevel: state.axeLevel,
+  stockpile: { ...state.stockpile },
+  backpack: { ...state.backpack },
+  backpackTotal: backpackTotal(state),
+  backpackCapacity: backpackCapacity(state),
+  axeTier: state.axeTier,
+  activeStationId: state.activeStationId,
+  currentTargetId: state.currentTargetId,
   standingTrees: state.trees.filter((tree) => tree.status === 'standing').length,
   fallingTrees: state.trees.filter((tree) => tree.status === 'falling').length,
   fallenTrees: state.trees.filter((tree) => tree.status === 'fallen').length,
-  logs: state.logs.filter((log) => log.status === 'whole').length,
-  chunksAvailable: state.chunks.filter((chunk) => !chunk.collected).length,
-  currentTargetId: state.currentTargetId,
+  fallenTrunks: state.trees.filter((tree) => tree.status === 'fallen' && !tree.splitDone).length,
+  landedLogs: state.trees.filter((tree) => tree.status === 'fallen' && !tree.splitDone).length,
+  woodItems: state.woodItems.filter((item) => !item.collected).length,
   player: { ...state.player.position },
 })

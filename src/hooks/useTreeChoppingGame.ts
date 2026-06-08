@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createWorld } from '../game/createWorld'
 import { getDebugSnapshot } from '../game/debug'
-import { createEmptyInput, stepGame, chop } from '../game/systems'
+import { createEmptyInput, stepGame } from '../game/systems'
 import { normalize, vec } from '../game/math'
 import type { GameInput, GameState } from '../game/types'
+
+export type MoveInputKey = 'up' | 'down' | 'left' | 'right'
 
 const keyToInput = (input: GameInput, code: string, value: boolean): void => {
   if (code === 'KeyW' || code === 'ArrowUp') input.up = value
@@ -17,27 +19,66 @@ export const useTreeChoppingGame = () => {
   const inputRef = useRef<GameInput>(createEmptyInput())
   const [, forceRender] = useState(0)
 
+  const setMoveInput = useCallback((key: MoveInputKey, value: boolean): void => {
+    inputRef.current[key] = value
+  }, [])
+
+  const requestChop = useCallback((): void => {
+    inputRef.current.chopRequests += 1
+  }, [])
+
+  const setChopHeld = useCallback((value: boolean): void => {
+    inputRef.current.chopHeld = value
+    if (value) inputRef.current.chopRequests += 1
+  }, [])
+
+  const requestInteract = useCallback((): void => {
+    inputRef.current.interactRequests += 1
+  }, [])
+
+  const requestDeposit = useCallback((): void => {
+    inputRef.current.depositRequests += 1
+  }, [])
+
+  const requestTeleport = useCallback((): void => {
+    inputRef.current.teleportRequests += 1
+  }, [])
+
+  const controls = useMemo(
+    () => ({ setMoveInput, requestChop, requestDeposit, requestInteract, requestTeleport, setChopHeld }),
+    [requestChop, requestDeposit, requestInteract, requestTeleport, setChopHeld, setMoveInput],
+  )
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       keyToInput(inputRef.current, event.code, true)
-      if (event.code === 'Space') inputRef.current.chopRequested = true
+      if (event.code === 'Space') setChopHeld(true)
+      if ((event.code === 'KeyE' || event.code === 'Enter') && !event.repeat) requestInteract()
+      if (event.code === 'KeyF' && !event.repeat) requestDeposit()
+      if (event.code === 'KeyR' && !event.repeat) requestTeleport()
     }
     const onKeyUp = (event: KeyboardEvent): void => {
       keyToInput(inputRef.current, event.code, false)
+      if (event.code === 'Space') setChopHeld(false)
     }
     const onMouseDown = (): void => {
-      inputRef.current.chopRequested = true
+      setChopHeld(true)
+    }
+    const onMouseUp = (): void => {
+      setChopHeld(false)
     }
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mouseup', onMouseUp)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [])
+  }, [requestDeposit, requestInteract, requestTeleport, setChopHeld])
 
   useEffect(() => {
     let raf = 0
@@ -46,7 +87,6 @@ export const useTreeChoppingGame = () => {
       const dt = Math.min((now - last) / 1000, 0.05)
       last = now
       stepGame(stateRef.current, inputRef.current, dt)
-      inputRef.current.chopRequested = false
       forceRender((value) => value + 1)
       raf = requestAnimationFrame(tick)
     }
@@ -64,8 +104,24 @@ export const useTreeChoppingGame = () => {
         for (let index = 0; index < count; index += 1) stepGame(stateRef.current, createEmptyInput(), fixedDt)
         forceRender((value) => value + 1)
       },
-      chop: () => {
-        chop(stateRef.current)
+      queueChop: () => {
+        inputRef.current.chopRequests += 1
+        stepGame(stateRef.current, inputRef.current, 1 / 60)
+        forceRender((value) => value + 1)
+      },
+      queueInteract: () => {
+        inputRef.current.interactRequests += 1
+        stepGame(stateRef.current, inputRef.current, 1 / 60)
+        forceRender((value) => value + 1)
+      },
+      deposit: () => {
+        inputRef.current.depositRequests += 1
+        stepGame(stateRef.current, inputRef.current, 1 / 60)
+        forceRender((value) => value + 1)
+      },
+      teleportHome: () => {
+        inputRef.current.teleportRequests += 1
+        stepGame(stateRef.current, inputRef.current, 1 / 60)
         forceRender((value) => value + 1)
       },
       movePlayerTo: (x: number, z: number) => {
@@ -86,5 +142,5 @@ export const useTreeChoppingGame = () => {
     }
   }, [])
 
-  return { stateRef, state: stateRef.current }
+  return { controls, stateRef, state: stateRef.current }
 }

@@ -1,10 +1,8 @@
 # Tree Chopping Web
 
-Browser vertical slice remake of `Tree Chopping Cascade`.
+Browser port target for the `tree-chopping-sbox` prototype.
 
-This is not a Godot port. It is a dry, scoped web remake focused on proving the core loop:
-
-> move → chop tree → tree falls → cascade hit → log → chunks → collect wood → axe upgrade
+The current target is `A`: a dry, summit-hub, mow-the-lawn tree chopping loop. It intentionally excludes the Godot river, water, dams, and voxel terrain, but borrows useful Godot ideas such as the beaver identity, low-poly dense forest read, biome progression, and stronger tool silhouettes.
 
 ## Stack
 
@@ -27,7 +25,35 @@ Open the local Vite URL, usually `http://localhost:5173`.
 ## Controls
 
 - `WASD` or arrow keys: move
-- `Space` or left click: chop
+- `Space` or left click: swing
+- `E` or `Enter`: use station
+- `F`: deposit backpack at the Wood Depot
+- `R`: return to summit hub
+
+## Current Scope
+
+Included:
+
+- dry mountain summit hub with four sbox stations: Tools, Wood Depot, Upgrades, Prestige
+- dense starter sapling field plus biome-biased progression forest
+- procedural low-poly beaver player and tool tier visuals
+- real swing windup/recovery instead of instant chop
+- sbox-style axe tiers from Hands to Chainsaw
+- tree kind gates: Sapling, Normal, Veteran, Brittle, Mythic
+- fallen trees remain the physical trunks, roll across slope instead of sliding, then split into wood items
+- third-person chase camera behind the beaver, no crosshair
+- backpack-to-stockpile deposit loop
+- basic upgrades, prestige gate, combo pips, contextual HUD, debug snapshot
+- browser e2e using real keyboard movement and swing requests
+
+Explicitly not included:
+
+- water
+- dams or barrages
+- voxel terrain digging
+- imported Godot assets
+- multiplayer
+- full engine-grade rigid-body simulation
 
 ## Verify
 
@@ -44,35 +70,3 @@ Or:
 ```bash
 npm run verify
 ```
-
-## Scope
-
-Included in v0:
-
-- 3/4 top-down dry arena
-- procedural low-poly beaver placeholder
-- 10 deterministic trees
-- target detection
-- multi-hit chopping
-- deterministic falling trees
-- cascade knockdown
-- fallen logs
-- log splitting
-- auto pickup chunks
-- wood counter
-- axe level 2 upgrade
-- debug HUD
-- `window.__TREE_CHOPPING_TEST__` for e2e tests
-
-Not included in v0:
-
-- water
-- voxel terrain
-- real dam simulation
-- imported assets
-- multiplayer
-- full physics engine
-
-## Why no water yet?
-
-The s&box prototype did not rely on water, and the Godot water/voxel stack is too expensive for a first browser slice. This repo intentionally starts with the tree-feel loop only.
