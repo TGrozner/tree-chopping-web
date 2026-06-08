@@ -138,6 +138,35 @@ describe('tree-chopping sbox loop', () => {
     expect(source.logVelocity.z).toBeLessThan(3.6)
   })
 
+  it('lets axe hits kick fallen trunks into new cascade impacts', () => {
+    const state = createWorld()
+    const source = starterTree(state)
+    const target = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!target) throw new Error('missing neighboring sapling')
+
+    state.trees = [source, target]
+    source.position = vec(0, 0)
+    source.status = 'fallen'
+    source.fallDirection = vec(1, 0)
+    source.fallAngle = TUNABLES.treeGroundAngle
+    source.logHealth = 6
+    source.logMaxHealth = 6
+    source.logVelocity = vec(0, 0)
+    source.logAngularVelocity = 0
+    source.impactedTreeIds = []
+    target.position = vec(2.35, 0.62)
+    state.player.position = vec(2.35, -1.15)
+    state.player.facing = vec(0, 1)
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    swing(state)
+
+    expect(source.logVelocity.z).toBeGreaterThan(1)
+    expect(source.logAngularVelocity).not.toBe(0)
+    expect(state.stats.cascades).toBeGreaterThanOrEqual(1)
+    expect(target.status).toBe('falling')
+  })
+
   it('splits larger trunks into chopable half-logs before wood items', () => {
     const state = createWorld()
     const tree = state.trees.find((candidate) => candidate.kind === 'normal')

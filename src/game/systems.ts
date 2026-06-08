@@ -311,6 +311,12 @@ const applyLogHit = (state: GameState, tree: Tree, comboMultiplier: number): voi
 
   const damage = chopDamage(state, comboMultiplier)
   tree.logHealth -= damage
+  const hitDirection = normalize(sub(getFallenTreeCenter(tree), state.player.position), state.player.facing)
+  const rollDirection = logRollDirection(tree)
+  const controlledRollDirection = dot(hitDirection, rollDirection) >= 0 ? rollDirection : scale(rollDirection, -1)
+  const kick = (TUNABLES.logHitKickSpeed + damage * 0.18) * comboMultiplier / treeMass(tree)
+  tree.logVelocity = add(tree.logVelocity, scale(controlledRollDirection, kick))
+  tree.logAngularVelocity += (dot(controlledRollDirection, rollDirection) >= 0 ? 1 : -1) * TUNABLES.logHitSpin * comboMultiplier
   tree.shakeTimer = TUNABLES.treeShakeDuration * 0.6
   tree.shakeDirection = normalize(sub(getFallenTreeCenter(tree), state.player.position), tree.fallDirection)
   state.stats.hits += 1

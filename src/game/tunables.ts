@@ -135,6 +135,8 @@ export const TUNABLES = {
   halfLogMinReward: 3,
   halfLogHealthMultiplier: 0.56,
   halfLogLaunchSpeed: 1.9,
+  logHitKickSpeed: 2.45,
+  logHitSpin: 5.2,
   treeHeight: 4.8,
   treeImpactRadius: 1.95,
   treeImpactDamage: 4,

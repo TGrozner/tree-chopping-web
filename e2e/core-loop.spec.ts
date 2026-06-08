@@ -12,18 +12,23 @@ const movePlayerToFallenTrunk = async (page: Page): Promise<string> =>
   page.evaluate(() => {
     const api = (window as any).__TREE_CHOPPING_TEST__
     const state = api.getState()
-    const tree = state.trees.find((candidate: any) => candidate.status === 'fallen' && !candidate.splitDone)
+    const tree =
+      state.trees.find((candidate: any) => candidate.id === state.currentTargetId && candidate.status === 'fallen' && !candidate.splitDone) ??
+      state.trees.find((candidate: any) => candidate.id === state.swing.lastTargetId && candidate.status === 'fallen' && !candidate.splitDone) ??
+      state.trees.find((candidate: any) => candidate.status === 'fallen' && !candidate.splitDone)
     if (!tree) throw new Error('missing fallen trunk')
     const center = {
       x: tree.position.x + tree.fallDirection.x * 4.8 * tree.scale * 0.45,
       z: tree.position.z + tree.fallDirection.z * 4.8 * tree.scale * 0.45,
     }
+    tree.logVelocity = { x: 0, z: 0 }
+    tree.logAngularVelocity = 0
     const side = { x: -tree.fallDirection.z, z: tree.fallDirection.x }
-    const player = { x: center.x - side.x * 1.1, z: center.z - side.z * 1.1 }
+    const player = { x: center.x - side.x * 0.72, z: center.z - side.z * 0.72 }
     api.movePlayerTo(player.x, player.z)
     api.face(center.x - player.x, center.z - player.z)
     api.step(1 / 60)
-    return tree.id
+    return api.getState().currentTargetId ?? tree.id
   })
 
 const movePlayerToStation = async (page: Page, stationId: string): Promise<void> => {
