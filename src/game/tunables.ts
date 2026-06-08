@@ -1,0 +1,16 @@
+export const TUNABLES = {
+  playerSpeed: 5.8,
+  targetRange: 2.4,
+  targetConeDot: 0.45,
+  chopDamageBase: 1,
+  fallDuration: 1.35,
+  treeHeight: 5.8,
+  treeImpactRadius: 1.15,
+  logChopRange: 2.2,
+  logHealth: 2,
+  chunksPerLog: 3,
+  collectRadius: 1.15,
+  upgradeWoodCost: 6,
+  worldHalfSize: 22,
+  feedbackLifetime: 0.8,
+} as const
