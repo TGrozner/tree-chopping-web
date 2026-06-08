@@ -18,11 +18,11 @@ test('core loop: chop, cascade, split logs, collect wood, upgrade axe', async ({
     api.face(0, 1)
     api.chop()
     api.chop()
-    api.step(1.6)
+    api.step(2.6)
   })
 
   const afterFall = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot())
-  expect(afterFall.fallenTrees).toBeGreaterThanOrEqual(1)
+  expect(afterFall.fallenTrees).toBeGreaterThanOrEqual(2)
   expect(afterFall.logs).toBeGreaterThanOrEqual(2)
 
   await page.evaluate(() => {
