@@ -93,6 +93,7 @@ export class Renderer {
   private readonly targetRing: THREE.Mesh
   private readonly stationRing: THREE.Mesh
   private readonly fallGuide: THREE.ArrowHelper
+  private readonly axePivot: THREE.Group
   private readonly axeHandle: THREE.Mesh
   private readonly axeHead: THREE.Mesh
 
@@ -124,23 +125,82 @@ export class Renderer {
     hub.position.copy(toThree({ x: 0, z: 0 }, 0.03))
     this.scene.add(hub)
 
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.82, 5, 10), new THREE.MeshLambertMaterial({ color: '#9a6331' }))
+    const furMaterial = new THREE.MeshLambertMaterial({ color: '#8f552a' })
+    const darkFurMaterial = new THREE.MeshLambertMaterial({ color: '#5a351c' })
+    const bellyMaterial = new THREE.MeshLambertMaterial({ color: '#c58a52' })
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.76, 7, 14), furMaterial)
     body.castShadow = true
-    body.position.y = 0.58
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 8), new THREE.MeshLambertMaterial({ color: '#a8733c' }))
-    head.position.set(0, 1.35, 0.18)
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.34), new THREE.MeshLambertMaterial({ color: '#3f2615' }))
-    nose.position.set(0, 1.29, 0.52)
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.12, 0.56), new THREE.MeshLambertMaterial({ color: '#5c3920' }))
-    tail.position.set(0, 0.35, -0.56)
-    tail.rotation.x = -0.35
-    this.axeHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.05, 6), new THREE.MeshLambertMaterial({ color: '#6f4524' }))
-    this.axeHandle.position.set(0.5, 1.0, 0.26)
-    this.axeHandle.rotation.z = -0.64
-    this.axeHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.22), new THREE.MeshLambertMaterial({ color: '#d7e0df' }))
-    this.axeHead.position.set(0.72, 1.32, 0.3)
-    this.axeHead.rotation.z = -0.22
-    this.player.add(body, head, nose, tail, this.axeHandle, this.axeHead)
+    body.position.y = 0.62
+    body.scale.set(1.05, 1, 0.86)
+
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.34, 14, 10), bellyMaterial)
+    belly.position.set(0, 0.62, 0.31)
+    belly.scale.set(0.82, 1.05, 0.38)
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 14, 10), furMaterial)
+    head.castShadow = true
+    head.position.set(0, 1.34, 0.2)
+    head.scale.set(1, 0.92, 1.05)
+    const muzzle = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.24, 4, 8), bellyMaterial)
+    muzzle.position.set(0, 1.27, 0.52)
+    muzzle.rotation.x = Math.PI * 0.5
+    muzzle.scale.set(1.25, 0.72, 0.85)
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.095, 8, 6), new THREE.MeshLambertMaterial({ color: '#24140d' }))
+    nose.position.set(0, 1.31, 0.69)
+    const eyeMaterial = new THREE.MeshBasicMaterial({ color: '#120b08' })
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), eyeMaterial)
+    leftEye.position.set(-0.14, 1.43, 0.51)
+    const rightEye = leftEye.clone()
+    rightEye.position.x = 0.14
+    const toothMaterial = new THREE.MeshLambertMaterial({ color: '#fff2d4' })
+    const leftTooth = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.035), toothMaterial)
+    leftTooth.position.set(-0.045, 1.16, 0.66)
+    const rightTooth = leftTooth.clone()
+    rightTooth.position.x = 0.045
+    const leftEar = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), darkFurMaterial)
+    leftEar.position.set(-0.24, 1.55, 0.05)
+    leftEar.scale.set(0.8, 1, 0.58)
+    const rightEar = leftEar.clone()
+    rightEar.position.x = 0.24
+
+    const armGeometry = new THREE.CapsuleGeometry(0.08, 0.52, 5, 8)
+    const leftArm = new THREE.Mesh(armGeometry, darkFurMaterial)
+    leftArm.position.set(-0.42, 0.82, 0.22)
+    leftArm.rotation.z = 0.32
+    leftArm.rotation.x = 0.12
+    const rightArm = new THREE.Mesh(armGeometry, darkFurMaterial)
+    rightArm.position.set(0.5, 0.88, 0.38)
+    rightArm.rotation.z = -0.72
+    rightArm.rotation.x = -0.18
+    const leftFoot = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), darkFurMaterial)
+    leftFoot.position.set(-0.22, 0.12, 0.28)
+    leftFoot.scale.set(1.25, 0.42, 1.7)
+    const rightFoot = leftFoot.clone()
+    rightFoot.position.x = 0.22
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.13, 0.92), new THREE.MeshLambertMaterial({ color: '#4a2d19' }))
+    tail.castShadow = true
+    tail.position.set(0, 0.3, -0.64)
+    tail.rotation.x = -0.42
+    tail.rotation.z = 0.12
+
+    this.axePivot = new THREE.Group()
+    this.axePivot.position.set(0.82, 0.95, 0.58)
+    this.axePivot.rotation.z = -0.58
+    this.axePivot.rotation.x = -0.18
+    this.axePivot.rotation.y = -0.2
+    this.axeHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.058, 1.32, 8), new THREE.MeshLambertMaterial({ color: '#6f4524' }))
+    this.axeHandle.castShadow = true
+    this.axeHandle.position.set(0, 0.46, 0)
+    this.axeHead = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.28, 0.17), new THREE.MeshLambertMaterial({ color: '#d7e0df' }))
+    this.axeHead.castShadow = true
+    this.axeHead.position.set(0.2, 1.1, 0)
+    this.axeHead.rotation.z = 0.1
+    const axeBlade = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.56, 0.24), new THREE.MeshLambertMaterial({ color: '#ffffff' }))
+    axeBlade.castShadow = true
+    axeBlade.position.set(0.58, 1.08, 0)
+    this.axePivot.add(this.axeHandle, this.axeHead, axeBlade)
+
+    this.player.add(body, belly, head, muzzle, nose, leftEye, rightEye, leftTooth, rightTooth, leftEar, rightEar, leftArm, rightArm, leftFoot, rightFoot, tail, this.axePivot)
     this.scene.add(this.player)
 
     this.targetRing = new THREE.Mesh(
@@ -237,12 +297,12 @@ export class Renderer {
     const phase = state.swing.phase
     const windupProgress = phase === 'windup' ? Math.min(1, state.swing.elapsed / TUNABLES.swingWindup) : 0
     const recoveryProgress = phase === 'recovery' ? Math.min(1, state.swing.elapsed / TUNABLES.swingRecovery) : 0
-    const swingPose = phase === 'windup' ? -windupProgress : phase === 'recovery' ? -1 + recoveryProgress * 1.35 : 0
-    this.axeHandle.rotation.z = -0.64 + swingPose * 0.95
-    this.axeHandle.rotation.x = swingPose * 0.25
-    this.axeHead.rotation.z = -0.22 + swingPose * 0.95
-    this.axeHead.position.y = 1.32 + Math.max(0, -swingPose) * 0.18
-    this.axeHead.position.x = 0.72 + swingPose * 0.1
+    const swingPose = phase === 'windup' ? -windupProgress : phase === 'recovery' ? -1 + recoveryProgress * 1.22 : 0
+    const raised = Math.max(0, -swingPose)
+    this.axePivot.position.set(0.82, 0.95 + raised * 0.24, 0.58 + raised * 0.12)
+    this.axePivot.rotation.z = -0.58 + swingPose * 1.48
+    this.axePivot.rotation.x = -0.18 + swingPose * 0.42
+    this.axePivot.rotation.y = -0.2 + raised * 0.2
   }
 
   private syncStations(stations: Station[], activeStationId: string | null): void {

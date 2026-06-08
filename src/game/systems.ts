@@ -3,7 +3,10 @@ import { terrainHeightAt } from './terrain'
 import { AXE_CHOP_POWER, AXE_COSTS, AXE_NAMES, AXE_WOOD_MULTIPLIER, BACKPACK_CAPS, BACKPACK_COSTS, TUNABLES, WOOD_TYPES, emptyInventory } from './tunables'
 import type { FeedbackEvent, GameInput, GameState, Inventory, Log, Station, Tree, Vec2, WoodItem, WoodType } from './types'
 
-type Target = { type: 'tree'; tree: Tree; score: number } | { type: 'log'; tree: Tree; score: number } | { type: 'sublog'; log: Log; score: number }
+type TreeTarget = { type: 'tree'; tree: Tree; score: number }
+type LogTarget = { type: 'log'; tree: Tree; score: number }
+type SubLogTarget = { type: 'sublog'; log: Log; score: number }
+type Target = TreeTarget | LogTarget | SubLogTarget
 
 export const inventoryTotal = (inventory: Inventory): number => WOOD_TYPES.reduce((sum, type) => sum + inventory[type], 0)
 export const backpackCapacity = (state: GameState): number => BACKPACK_CAPS[Math.min(state.backpackTier, BACKPACK_CAPS.length - 1)]
@@ -79,72 +82,106 @@ const logRollDirection = (tree: Tree): Vec2 => {
   return dot(downhill, side) >= 0 ? side : scale(side, -1)
 }
 
-const targetScore = (state: GameState, position: Vec2, radius: number, range: number, turnPenalty: number): number | null => {
-  const toTarget = sub(position, state.player.position)
-  const distanceToEdge = Math.max(0, Math.sqrt(lengthSq(toTarget)) - radius)
-  if (distanceToEdge > range) return null
-  const facingScore = dot(normalize(toTarget, state.player.facing), state.player.facing)
-  const facingPenalty = facingScore >= TUNABLES.targetConeDot ? (1 - facingScore) * 0.35 : (1 - facingScore) * turnPenalty
-  return distanceToEdge * distanceToEdge + facingPenalty
+const targetAimScore = (state: GameState, toTarget: Vec2): number => {
+  const direction = normalize(toTarget, state.player.facing)
+  const cameraForward = yawToFacing(state.player.cameraYaw)
+  const cameraScore = dot(direction, cameraForward)
+  const movementScore = dot(direction, state.player.facing) * TUNABLES.movementTargetAssistWeight
+  return Math.max(cameraScore, movementScore)
 }
 
-export const findTreeTarget = (state: GameState): Tree | null => {
-  let best: Target | null = null
+const targetCameraScore = (state: GameState, toTarget: Vec2): number => dot(normalize(toTarget, state.player.facing), yawToFacing(state.player.cameraYaw))
+
+const standingTreeStickyBonus = (state: GameState, tree: Tree): number => {
+  if (tree.id === state.swing.lastTargetId) return TUNABLES.targetStickyBonus
+  if (tree.cutProgress > 0) return TUNABLES.targetStickyBonus * 0.55
+  return 0
+}
+
+const targetDistanceToEdge = (state: GameState, position: Vec2, radius: number): number =>
+  Math.max(0, Math.sqrt(distanceSq(position, state.player.position)) - radius)
+
+const targetScore = (state: GameState, position: Vec2, radius: number, range: number, turnPenalty: number, scoreBonus = 0): number | null => {
+  const toTarget = sub(position, state.player.position)
+  const distanceToEdge = targetDistanceToEdge(state, position, radius)
+  if (distanceToEdge > range) return null
+  const aimScore = targetAimScore(state, toTarget)
+  const isClose = distanceToEdge <= TUNABLES.closeTargetRange
+  if (!isClose && aimScore < TUNABLES.targetConeDot) return null
+  const aimPenalty = aimScore >= TUNABLES.targetConeDot ? (1 - aimScore) * 0.42 : (1 - aimScore) * turnPenalty
+  const cameraBonus = Math.max(0, targetCameraScore(state, toTarget)) * TUNABLES.cameraTargetBonus
+  return distanceToEdge * distanceToEdge + (isClose ? aimPenalty * 0.38 : aimPenalty) - scoreBonus - cameraBonus
+}
+
+const findTreeTargetCandidate = (state: GameState): TreeTarget | null => {
+  let best: TreeTarget | null = null
   const range = targetRange(state)
   for (const tree of state.trees) {
     if (tree.status !== 'standing') continue
-    const score = targetScore(state, tree.position, TUNABLES.targetAssistRadius * tree.scale, range, 2.2)
+    const score = targetScore(state, tree.position, TUNABLES.targetAssistRadius * tree.scale, range, 2.2, standingTreeStickyBonus(state, tree))
     if (score === null) continue
     if (!best || score < best.score) best = { type: 'tree', tree, score }
   }
-  return best?.type === 'tree' ? best.tree : null
+  return best
 }
 
-export const findLogTarget = (state: GameState): Tree | null => {
-  const sticky = state.trees.find((tree) => tree.id === state.swing.lastTargetId && tree.status === 'fallen' && !tree.splitDone)
-  if (sticky) {
-    const nearest = nearestPointOnSegment(state.player.position, sticky.position, getTreePhysicsTip(sticky))
-    const stickyScore = targetScore(state, nearest, TUNABLES.logTargetAssistRadius, logTargetRange(state) + 0.7, 0.45)
-    if (stickyScore !== null) return sticky
-  }
+export const findTreeTarget = (state: GameState): Tree | null => {
+  const target = findTreeTargetCandidate(state)
+  return target?.tree ?? null
+}
 
-  let best: Target | null = null
+const findLogTargetCandidate = (state: GameState): LogTarget | null => {
+  let best: LogTarget | null = null
   const range = logTargetRange(state)
   for (const tree of state.trees) {
     if (tree.status !== 'fallen' || tree.splitDone) continue
     const nearest = nearestPointOnSegment(state.player.position, tree.position, getTreePhysicsTip(tree))
-    const score = targetScore(state, nearest, TUNABLES.logTargetAssistRadius, range, 1.8)
+    const sticky = tree.id === state.swing.lastTargetId
+    const score = targetScore(
+      state,
+      nearest,
+      TUNABLES.logTargetAssistRadius,
+      range + (sticky ? 0.7 : 0),
+      sticky ? 0.45 : 1.8,
+      sticky ? TUNABLES.targetStickyBonus : -TUNABLES.logTargetPriorityPenalty,
+    )
     if (score === null) continue
     if (!best || score < best.score) best = { type: 'log', tree, score }
   }
-  return best?.type === 'log' ? best.tree : null
+  return best
 }
 
-const findSubLogTarget = (state: GameState): Log | null => {
-  let best: { log: Log; score: number } | null = null
+export const findLogTarget = (state: GameState): Tree | null => {
+  const target = findLogTargetCandidate(state)
+  return target?.tree ?? null
+}
+
+const findSubLogTargetCandidate = (state: GameState): SubLogTarget | null => {
+  let best: SubLogTarget | null = null
   const range = logTargetRange(state) + 0.2
   for (const log of state.logs) {
     if (log.status !== 'landed' || log.splitDone) continue
     const [start, end] = getSubLogEndPoints(log)
     const nearest = nearestPointOnSegment(state.player.position, start, end)
-    const score = targetScore(state, nearest, TUNABLES.logTargetAssistRadius * 0.82, range, 1.4)
+    const sticky = log.id === state.swing.lastTargetId
+    const score = targetScore(
+      state,
+      nearest,
+      TUNABLES.logTargetAssistRadius * 0.82,
+      range + (sticky ? 0.45 : 0),
+      sticky ? 0.45 : 1.4,
+      sticky ? TUNABLES.targetStickyBonus : -TUNABLES.logTargetPriorityPenalty * 0.65,
+    )
     if (score === null) continue
-    if (!best || score < best.score) best = { log, score }
+    if (!best || score < best.score) best = { type: 'sublog', log, score }
   }
-  return best?.log ?? null
+  return best
 }
 
 const findTarget = (state: GameState): Target | null => {
-  const logTree = findLogTarget(state)
-  if (logTree) return { type: 'log', tree: logTree, score: distanceSq(getFallenTreeCenter(logTree), state.player.position) }
-
-  const subLog = findSubLogTarget(state)
-  if (subLog) return { type: 'sublog', log: subLog, score: distanceSq(subLog.position, state.player.position) }
-
-  const tree = findTreeTarget(state)
-  if (!tree && !logTree && !subLog) return null
-  if (!tree) return null
-  return { type: 'tree', tree, score: distanceSq(tree.position, state.player.position) }
+  const candidates = [findTreeTargetCandidate(state), findLogTargetCandidate(state), findSubLogTargetCandidate(state)].filter((target): target is Target => Boolean(target))
+  if (candidates.length === 0) return null
+  return candidates.reduce((best, candidate) => (candidate.score < best.score ? candidate : best))
 }
 
 const updateTarget = (state: GameState): void => {
@@ -365,11 +402,51 @@ const applySubLogHit = (state: GameState, log: Log, comboMultiplier: number): bo
   return true
 }
 
-const applySwingHit = (state: GameState): void => {
-  const target = findTarget(state)
-  state.swing.lastTargetId = target?.type === 'sublog' ? target.log.id : target?.tree.id ?? null
+const swingScore = (state: GameState, position: Vec2, radius: number, range: number, scoreBonus = 0): number | null => {
+  const edgeDistance = targetDistanceToEdge(state, position, radius)
+  if (edgeDistance > range) return null
+  const toTarget = sub(position, state.player.position)
+  const aimScore = targetAimScore(state, toTarget)
+  const isClose = edgeDistance <= TUNABLES.closeTargetRange
+  if (aimScore < (isClose ? TUNABLES.swingCloseArcDot : TUNABLES.swingArcDot)) return null
+  return edgeDistance * edgeDistance + (1 - aimScore) * (isClose ? 0.28 : 0.72) - scoreBonus
+}
 
-  if (!target) {
+const findSwingHits = (state: GameState): Target[] => {
+  const hits: Target[] = []
+  const treeRange = targetRange(state)
+  const logRange = logTargetRange(state)
+
+  for (const tree of state.trees) {
+    if (tree.status === 'standing') {
+      const score = swingScore(state, tree.position, TUNABLES.targetAssistRadius * tree.scale, treeRange, standingTreeStickyBonus(state, tree))
+      if (score !== null) hits.push({ type: 'tree', tree, score })
+      continue
+    }
+    if (tree.status !== 'fallen' || tree.splitDone) continue
+    const nearest = nearestPointOnSegment(state.player.position, tree.position, getTreePhysicsTip(tree))
+    const sticky = tree.id === state.swing.lastTargetId
+    const score = swingScore(state, nearest, TUNABLES.logTargetAssistRadius, logRange + (sticky ? 0.55 : 0), sticky ? TUNABLES.targetStickyBonus : 0)
+    if (score !== null) hits.push({ type: 'log', tree, score })
+  }
+
+  for (const log of state.logs) {
+    if (log.status !== 'landed' || log.splitDone) continue
+    const [start, end] = getSubLogEndPoints(log)
+    const nearest = nearestPointOnSegment(state.player.position, start, end)
+    const sticky = log.id === state.swing.lastTargetId
+    const score = swingScore(state, nearest, TUNABLES.logTargetAssistRadius * 0.82, logRange + 0.2 + (sticky ? 0.35 : 0), sticky ? TUNABLES.targetStickyBonus : 0)
+    if (score !== null) hits.push({ type: 'sublog', log, score })
+  }
+
+  return hits.sort((a, b) => a.score - b.score).slice(0, TUNABLES.swingMaxHits)
+}
+
+const applySwingHit = (state: GameState): void => {
+  const targets = findSwingHits(state)
+  state.swing.lastTargetId = targets[0]?.type === 'sublog' ? targets[0].log.id : targets[0]?.tree.id ?? null
+
+  if (targets.length === 0) {
     state.swing.combo = 0
     state.swing.comboTimer = 0
     addFeedback(state, 'whiff', 'miss', state.player.position)
@@ -380,14 +457,16 @@ const applySwingHit = (state: GameState): void => {
   const nextCombo = state.swing.comboTimer > 0 ? Math.min(TUNABLES.comboMax, state.swing.combo + 1) : 1
   const finalCombo = nextCombo >= TUNABLES.comboMax
   const comboMultiplier = finalCombo ? TUNABLES.comboFinalMultiplier : 1
-  const targetPosition = target.type === 'tree' ? target.tree.position : target.type === 'log' ? getFallenTreeCenter(target.tree) : target.log.position
-  state.player.facing = normalize(sub(targetPosition, state.player.position), state.player.facing)
-  const hit =
-    target.type === 'tree'
-      ? applyTreeHit(state, target.tree, comboMultiplier)
-      : target.type === 'log'
-        ? applyLogHit(state, target.tree, comboMultiplier)
-        : applySubLogHit(state, target.log, comboMultiplier)
+  let hit = false
+  for (const target of targets) {
+    const didHit =
+      target.type === 'tree'
+        ? applyTreeHit(state, target.tree, comboMultiplier)
+        : target.type === 'log'
+          ? applyLogHit(state, target.tree, comboMultiplier)
+          : applySubLogHit(state, target.log, comboMultiplier)
+    hit = hit || didHit
+  }
 
   if (hit) {
     state.swing.combo = finalCombo ? 0 : nextCombo

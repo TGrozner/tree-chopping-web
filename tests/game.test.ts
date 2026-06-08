@@ -350,6 +350,97 @@ describe('tree-chopping sbox loop', () => {
     expect(tree.cutProgress).toBeGreaterThan(0)
   })
 
+  it('uses camera aim to pick a tree when movement facing is stale', () => {
+    const state = createWorld()
+    const cameraTree = starterTree(state)
+    const movementTree = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!movementTree) throw new Error('missing neighboring sapling')
+    state.trees = [movementTree, cameraTree]
+    state.player.position = vec(0, 0)
+    state.player.facing = vec(1, 0)
+    state.player.cameraYaw = Math.PI * 0.5
+    movementTree.position = vec(2.35, 0)
+    cameraTree.position = vec(0, 2.35)
+
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    expect(state.currentTargetId).toBe(cameraTree.id)
+    swing(state)
+    expect(cameraTree.health).toBeLessThan(cameraTree.maxHealth)
+    expect(movementTree.health).toBeLessThan(movementTree.maxHealth)
+  })
+
+  it('lets one swing hit multiple trees in the arc without hitting a side tree', () => {
+    const state = createWorld()
+    const frontA = starterTree(state)
+    const frontB = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    const side = state.trees.find((tree) => tree.id === 'starter-sapling-002')
+    if (!frontB || !side) throw new Error('missing neighboring saplings')
+    state.trees = [frontA, frontB, side]
+    state.player.position = vec(0, 0)
+    state.player.facing = vec(1, 0)
+    state.player.cameraYaw = 0
+    frontA.position = vec(2.35, 0.28)
+    frontB.position = vec(2.55, -0.32)
+    side.position = vec(0.4, 3.5)
+
+    swing(state)
+
+    expect(frontA.health).toBe(frontA.maxHealth - 1)
+    expect(frontB.health).toBe(frontB.maxHealth - 1)
+    expect(side.health).toBe(side.maxHealth)
+    expect(state.stats.hits).toBe(2)
+    expect(state.swing.combo).toBe(1)
+  })
+
+  it('lets one swing hit a fallen trunk and a standing tree in front', () => {
+    const state = createWorld()
+    const trunk = starterTree(state)
+    const tree = state.trees.find((candidate) => candidate.id === 'starter-sapling-001')
+    if (!tree) throw new Error('missing neighboring sapling')
+    state.trees = [trunk, tree]
+    state.player.position = vec(0, 0)
+    state.player.facing = vec(1, 0)
+    state.player.cameraYaw = 0
+    trunk.position = vec(1.1, 0.1)
+    trunk.status = 'fallen'
+    trunk.fallDirection = vec(1, 0)
+    trunk.fallAngle = TUNABLES.treeGroundAngle
+    trunk.logHealth = 6
+    trunk.logMaxHealth = 6
+    trunk.splitDone = false
+    tree.position = vec(2.45, 0.34)
+
+    swing(state)
+
+    expect(trunk.logHealth).toBeLessThan(trunk.logMaxHealth)
+    expect(tree.health).toBeLessThan(tree.maxHealth)
+    expect(state.stats.hits).toBe(2)
+  })
+
+  it('keeps a damaged standing tree sticky in a dense cluster', () => {
+    const state = createWorld()
+    const damaged = starterTree(state)
+    const fresh = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!fresh) throw new Error('missing neighboring sapling')
+    state.trees = [fresh, damaged]
+    state.player.position = vec(0, 0)
+    state.player.facing = vec(1, 0)
+    state.player.cameraYaw = 0
+    damaged.position = vec(2.35, 0.38)
+    fresh.position = vec(2.15, -0.06)
+    damaged.health = damaged.maxHealth - 1
+    damaged.cutProgress = 0.25
+    state.swing.lastTargetId = damaged.id
+
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    expect(state.currentTargetId).toBe(damaged.id)
+    swing(state)
+    expect(damaged.health).toBe(damaged.maxHealth - 2)
+    expect(fresh.health).toBeLessThan(fresh.maxHealth)
+  })
+
   it('gates harder trees behind the Stone axe tier', () => {
     const state = createWorld()
     const normal = state.trees.find((tree) => !tree.starter && tree.kind === 'normal' && tree.minAxeTier === 1)
