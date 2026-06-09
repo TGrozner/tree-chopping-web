@@ -7,8 +7,7 @@ type CameraOffset = Vec2 & { fov: number }
 
 const distance = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.z - b.z)
 
-const intersects = (a: Box, b: Box): boolean =>
-  a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+const intersects = (a: Box, b: Box): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
 const waitForGame = async (page: Page): Promise<void> => {
   await clearSavedRun(page)
@@ -45,14 +44,11 @@ test('keyboard controls move toward the visible first target and mouse click swi
   const beforeDistance = distance(before.player, before.tree)
 
   await page.keyboard.down('w')
-  await page.waitForFunction(
-    (targetDistance) => {
-      const state = (window as any).__TREE_CHOPPING_TEST__.getState()
-      const tree = state.trees.find((candidate: any) => candidate.id === 'starter-sapling-000')
-      return Math.hypot(state.player.position.x - tree.position.x, state.player.position.z - tree.position.z) < targetDistance
-    },
-    beforeDistance - 0.4,
-  )
+  await page.waitForFunction((targetDistance) => {
+    const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+    const tree = state.trees.find((candidate: any) => candidate.id === 'starter-sapling-000')
+    return Math.hypot(state.player.position.x - tree.position.x, state.player.position.z - tree.position.z) < targetDistance
+  }, beforeDistance - 0.4)
   await page.keyboard.up('w')
 
   const afterMove = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot())
@@ -108,13 +104,10 @@ test('mouse look turns the third-person movement heading', async ({ page }) => {
   await canvas.dispatchEvent('mouseup', { button: 2, buttons: 0, bubbles: true })
 
   await page.keyboard.down('w')
-  await page.waitForFunction(
-    (start) => {
-      const state = (window as any).__TREE_CHOPPING_TEST__.getState()
-      return state.player.position.z - start.z > 0.5
-    },
-    before.position,
-  )
+  await page.waitForFunction((start) => {
+    const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+    return state.player.position.z - start.z > 0.5
+  }, before.position)
   await page.keyboard.up('w')
 
   const after = await page.evaluate(() => {
@@ -153,14 +146,11 @@ test('touch dpad up moves toward the first target and touch chop hits it', async
 
   const moveUp = page.getByRole('button', { name: /^Move up$/ })
   await moveUp.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, bubbles: true })
-  await page.waitForFunction(
-    (targetDistance) => {
-      const state = (window as any).__TREE_CHOPPING_TEST__.getState()
-      const tree = state.trees.find((candidate: any) => candidate.id === 'starter-sapling-000')
-      return Math.hypot(state.player.position.x - tree.position.x, state.player.position.z - tree.position.z) < targetDistance
-    },
-    beforeDistance - 0.4,
-  )
+  await page.waitForFunction((targetDistance) => {
+    const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+    const tree = state.trees.find((candidate: any) => candidate.id === 'starter-sapling-000')
+    return Math.hypot(state.player.position.x - tree.position.x, state.player.position.z - tree.position.z) < targetDistance
+  }, beforeDistance - 0.4)
   await moveUp.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, bubbles: true })
 
   const chop = page.getByRole('button', { name: /^Chop$/ })
@@ -184,18 +174,42 @@ test('saved progression survives reload and reset run clears it', async ({ page 
     const state = api.getState()
     state.stockpile.wood = 18
     state.axeTier = 1
-    api.saveNow()
   })
+  await page.getByRole('button', { name: /^save$/i }).click()
 
   await page.reload()
   await waitForGameApi(page)
   await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().axeTier === 1)
   expect(await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().stockpile.wood)).toBe(18)
 
-  await page.getByTestId('debug-overlay').click()
   await page.getByRole('button', { name: /^reset run$/i }).click()
+  await page.getByRole('button', { name: /^confirm reset$/i }).click()
   await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().axeTier === 0)
   const snapshot = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot())
   expect(snapshot.stockpile.wood).toBe(0)
   expect(snapshot.currentTargetId).toBe('starter-sapling-000')
+})
+
+test('upgrade station buttons buy the selected upgrade explicitly', async ({ page }) => {
+  await waitForGame(page)
+
+  await page.evaluate(() => {
+    const api = (window as any).__TREE_CHOPPING_TEST__
+    const state = api.getState()
+    const station = state.stations.find((candidate: any) => candidate.id === 'station-upgrades')
+    if (!station) throw new Error('missing upgrades station')
+    state.stockpile.wood = 14
+    api.movePlayerTo(station.position.x, station.position.z)
+    api.step(1 / 60)
+  })
+  await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().activeStationId === 'station-upgrades')
+
+  await page.getByRole('button', { name: /^Upgrade speed$/i }).click()
+  await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getState().speedTier === 1)
+
+  const state = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getState())
+  expect(state.selectedUpgrade).toBe('speed')
+  expect(state.speedTier).toBe(1)
+  expect(state.backpackTier).toBe(0)
+  expect(state.stockpile.wood).toBe(0)
 })

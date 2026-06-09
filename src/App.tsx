@@ -5,12 +5,18 @@ import { useTreeChoppingGame } from './hooks/useTreeChoppingGame'
 import './styles.css'
 
 const App = () => {
-  const { controls, stateRef, state } = useTreeChoppingGame()
+  const { controls, saveStatus, stateRef, state } = useTreeChoppingGame()
 
   return (
     <main className="app-shell">
       <GameCanvas stateRef={stateRef} />
-      <Hud onResetRun={controls.resetRun} state={state} />
+      <Hud
+        onRequestUpgrade={controls.requestUpgrade}
+        onResetRun={controls.resetRun}
+        onSaveRun={controls.saveNow}
+        saveStatus={saveStatus}
+        state={state}
+      />
       <GameControls controls={controls} />
     </main>
   )

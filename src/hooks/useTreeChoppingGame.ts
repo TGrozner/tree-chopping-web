@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createWorld } from '../game/createWorld'
 import { getDebugSnapshot } from '../game/debug'
 import { loadGameState, removeGameState, saveGameState } from '../game/persistence'
-import { createEmptyInput, stepGame } from '../game/systems'
+import { createEmptyInput, selectUpgrade as selectStateUpgrade, stepGame } from '../game/systems'
 import { normalize, vec } from '../game/math'
-import type { FeedbackEvent, GameInput, GameState } from '../game/types'
+import type { FeedbackEvent, GameInput, GameState, UpgradeKind } from '../game/types'
 
 export type MoveInputKey = 'up' | 'down' | 'left' | 'right'
+export type SaveStatus = {
+  lastSavedAt: number | null
+  ok: boolean
+}
 
 const keyToInput = (input: GameInput, code: string, value: boolean): void => {
   if (code === 'KeyW' || code === 'ArrowUp') input.up = value
@@ -31,7 +35,12 @@ export const useTreeChoppingGame = () => {
   const audioRef = useRef<AudioContext | null>(null)
   const playedFeedbackRef = useRef<Set<number>>(new Set())
   const lastSaveRef = useRef(0)
-  const [, forceRender] = useState(0)
+  const [state, setState] = useState<GameState>(initialState)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ lastSavedAt: null, ok: true })
+
+  const publishState = useCallback((): void => {
+    setState({ ...stateRef.current })
+  }, [])
 
   const ensureAudio = useCallback((): AudioContext | null => {
     if (audioRef.current) {
@@ -102,9 +111,22 @@ export const useTreeChoppingGame = () => {
     inputRef.current.teleportRequests += 1
   }, [])
 
+  const requestUpgrade = useCallback((upgrade: UpgradeKind): void => {
+    inputRef.current.upgradeRequests.push(upgrade)
+  }, [])
+
+  const selectUpgrade = useCallback(
+    (upgrade: UpgradeKind): void => {
+      selectStateUpgrade(stateRef.current, upgrade)
+      publishState()
+    },
+    [publishState],
+  )
+
   const saveNow = useCallback((): void => {
-    saveGameState(browserStorage(), stateRef.current)
+    const ok = saveGameState(browserStorage(), stateRef.current)
     lastSaveRef.current = performance.now()
+    setSaveStatus({ lastSavedAt: Date.now(), ok })
   }, [])
 
   const resetRun = useCallback((): void => {
@@ -113,12 +135,35 @@ export const useTreeChoppingGame = () => {
     inputRef.current = createEmptyInput()
     playedFeedbackRef.current.clear()
     lastSaveRef.current = 0
-    forceRender((value) => value + 1)
-  }, [])
+    setSaveStatus({ lastSavedAt: null, ok: true })
+    publishState()
+  }, [publishState])
 
   const controls = useMemo(
-    () => ({ setMoveInput, requestChop, requestDeposit, requestInteract, requestTeleport, resetRun, setChopHeld }),
-    [requestChop, requestDeposit, requestInteract, requestTeleport, resetRun, setChopHeld, setMoveInput],
+    () => ({
+      setMoveInput,
+      requestChop,
+      requestDeposit,
+      requestInteract,
+      requestTeleport,
+      requestUpgrade,
+      resetRun,
+      saveNow,
+      selectUpgrade,
+      setChopHeld,
+    }),
+    [
+      requestChop,
+      requestDeposit,
+      requestInteract,
+      requestTeleport,
+      requestUpgrade,
+      resetRun,
+      saveNow,
+      selectUpgrade,
+      setChopHeld,
+      setMoveInput,
+    ],
   )
 
   useEffect(() => {
@@ -143,9 +188,8 @@ export const useTreeChoppingGame = () => {
         return
       }
       if (event.button !== 0) return
-      if (event.target instanceof HTMLCanvasElement && document.pointerLockElement !== event.target) {
-        event.target.requestPointerLock?.()
-      }
+      if (!(event.target instanceof HTMLCanvasElement)) return
+      if (document.pointerLockElement !== event.target) event.target.requestPointerLock?.()
       setChopHeld(true)
     }
     const onMouseUp = (event: MouseEvent): void => {
@@ -190,12 +234,12 @@ export const useTreeChoppingGame = () => {
       stepGame(stateRef.current, inputRef.current, dt)
       playNewFeedbackSounds()
       if (now - lastSaveRef.current > 1200) saveNow()
-      forceRender((value) => value + 1)
+      publishState()
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playNewFeedbackSounds, saveNow])
+  }, [playNewFeedbackSounds, publishState, saveNow])
 
   useEffect(() => {
     const onBeforeUnload = (): void => {
@@ -216,42 +260,46 @@ export const useTreeChoppingGame = () => {
         const fixedDt = 1 / 60
         const count = Math.ceil(seconds / fixedDt)
         for (let index = 0; index < count; index += 1) stepGame(stateRef.current, createEmptyInput(), fixedDt)
-        forceRender((value) => value + 1)
+        publishState()
       },
       queueChop: () => {
         inputRef.current.chopRequests += 1
         stepGame(stateRef.current, inputRef.current, 1 / 60)
-        forceRender((value) => value + 1)
+        publishState()
       },
       queueInteract: () => {
         inputRef.current.interactRequests += 1
         stepGame(stateRef.current, inputRef.current, 1 / 60)
-        forceRender((value) => value + 1)
+        publishState()
       },
       deposit: () => {
         inputRef.current.depositRequests += 1
         stepGame(stateRef.current, inputRef.current, 1 / 60)
-        forceRender((value) => value + 1)
+        publishState()
+      },
+      selectUpgrade: (upgrade: UpgradeKind) => {
+        selectStateUpgrade(stateRef.current, upgrade)
+        publishState()
       },
       teleportHome: () => {
         inputRef.current.teleportRequests += 1
         stepGame(stateRef.current, inputRef.current, 1 / 60)
-        forceRender((value) => value + 1)
+        publishState()
       },
       movePlayerTo: (x: number, z: number) => {
         stateRef.current.player.position = vec(x, z)
-        forceRender((value) => value + 1)
+        publishState()
       },
       face: (x: number, z: number) => {
         const direction = normalize(vec(x, z), vec(1, 0))
         stateRef.current.player.facing = direction
         stateRef.current.player.cameraYaw = Math.atan2(direction.z, direction.x)
-        forceRender((value) => value + 1)
+        publishState()
       },
       look: (movementX: number) => {
         inputRef.current.lookDeltaX += movementX
         stepGame(stateRef.current, inputRef.current, 1 / 60)
-        forceRender((value) => value + 1)
+        publishState()
       },
       reset: () => {
         resetRun()
@@ -262,7 +310,7 @@ export const useTreeChoppingGame = () => {
     return () => {
       delete window.__TREE_CHOPPING_TEST__
     }
-  }, [resetRun, saveNow])
+  }, [publishState, resetRun, saveNow])
 
-  return { controls, stateRef, state: stateRef.current }
+  return { controls, saveStatus, stateRef, state }
 }

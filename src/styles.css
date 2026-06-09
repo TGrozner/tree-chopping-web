@@ -9,7 +9,14 @@ body,
   height: 100%;
   margin: 0;
   overflow: hidden;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   background: #18220f;
 }
 
@@ -48,6 +55,7 @@ body,
 .tool-panel,
 .station-panel,
 .target-panel,
+.save-panel,
 .debug-hud {
   border: 1px solid rgb(255 255 255 / 16%);
   border-radius: 8px;
@@ -107,6 +115,7 @@ body,
 }
 
 .station-panel {
+  pointer-events: auto;
   position: absolute;
   top: 14px;
   right: 14px;
@@ -120,6 +129,106 @@ body,
 .station-panel.is-active {
   border-color: rgb(255 209 102 / 60%);
   background: rgb(52 40 18 / 80%);
+}
+
+.upgrade-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.upgrade-button,
+.save-panel button {
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 6px;
+  color: #fff7df;
+  background: rgb(15 26 32 / 76%);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.upgrade-button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 7px 5px;
+  text-align: center;
+}
+
+.upgrade-button.is-selected {
+  border-color: rgb(255 209 102 / 82%);
+  background: rgb(70 55 20 / 88%);
+}
+
+.upgrade-button.is-affordable strong {
+  color: #9ff0b5;
+}
+
+.upgrade-button:disabled {
+  color: rgb(255 247 223 / 58%);
+  background: rgb(18 28 15 / 48%);
+}
+
+.upgrade-name,
+.upgrade-tier {
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.upgrade-button strong {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.upgrade-tier {
+  opacity: 0.72;
+}
+
+.save-panel {
+  pointer-events: auto;
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  max-width: calc(100vw - 28px);
+  padding: 8px;
+  opacity: 0.88;
+}
+
+.save-panel span {
+  min-width: 84px;
+  padding: 0 3px;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.save-panel.is-error span {
+  color: #ff9d7a;
+}
+
+.save-panel button {
+  min-width: 64px;
+  min-height: 32px;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.save-panel button.is-danger {
+  border-color: rgb(255 157 122 / 62%);
+  background: rgb(84 34 18 / 82%);
 }
 
 .target-panel {
@@ -180,7 +289,11 @@ body,
   border-radius: 6px;
   color: #fff7df;
   background: rgb(84 34 18 / 72%);
-  font: 800 11px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  font:
+    800 11px/1 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
   padding: 7px 8px;
   text-transform: uppercase;
 }
@@ -213,7 +326,11 @@ body,
   color: #fff7df;
   background: rgb(18 28 15 / 78%);
   box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
-  font: 900 18px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  font:
+    900 18px/1 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
   touch-action: none;
 }
 
@@ -278,6 +395,14 @@ body,
   .combo-pips {
     bottom: 236px;
   }
+
+  .save-panel {
+    top: auto;
+    right: auto;
+    bottom: 274px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 @media (max-width: 680px) {
@@ -287,7 +412,7 @@ body,
   }
 
   .station-panel {
-    top: 132px;
+    top: 154px;
     right: 14px;
     bottom: auto;
     width: min(320px, calc(100vw - 28px));
@@ -311,8 +436,13 @@ body,
   .resource-panel,
   .tool-panel,
   .station-panel,
-  .target-panel {
+  .target-panel,
+  .save-panel {
     padding: 8px 9px;
+  }
+
+  .upgrade-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .dpad {

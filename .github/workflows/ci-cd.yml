@@ -20,6 +20,29 @@ env:
   VITE_BASE_PATH: /tree-chopping-web/
 
 jobs:
+  quality:
+    name: Format and Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
@@ -124,6 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs:
+      - quality
       - typecheck
       - unit
       - e2e

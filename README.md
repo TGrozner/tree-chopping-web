@@ -1,6 +1,10 @@
 # Tree Chopping Web
 
+[![CI/CD](https://github.com/TGrozner/tree-chopping-web/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/TGrozner/tree-chopping-web/actions/workflows/ci-cd.yml)
+
 Browser port target for the `tree-chopping-sbox` prototype.
+
+Production: https://tgrozner.github.io/tree-chopping-web/
 
 The current target is `A`: a dry, summit-hub, mow-the-lawn tree chopping loop. It intentionally excludes the Godot river, water, dams, and voxel terrain, but borrows useful Godot ideas such as the beaver identity, low-poly dense forest read, biome progression, and stronger tool silhouettes.
 
@@ -62,6 +66,8 @@ Explicitly not included:
 ## Verify
 
 ```bash
+npm run format:check
+npm run lint
 npm run typecheck
 npm run test
 npm run build

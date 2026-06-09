@@ -201,7 +201,25 @@ export class Renderer {
     axeBlade.position.set(0.58, 1.08, 0)
     this.axePivot.add(this.axeHandle, this.axeHead, axeBlade)
 
-    this.player.add(body, belly, head, muzzle, nose, leftEye, rightEye, leftTooth, rightTooth, leftEar, rightEar, leftArm, rightArm, leftFoot, rightFoot, tail, this.axePivot)
+    this.player.add(
+      body,
+      belly,
+      head,
+      muzzle,
+      nose,
+      leftEye,
+      rightEye,
+      leftTooth,
+      rightTooth,
+      leftEar,
+      rightEar,
+      leftArm,
+      rightArm,
+      leftFoot,
+      rightFoot,
+      tail,
+      this.axePivot,
+    )
     this.scene.add(this.player)
 
     this.targetRing = new THREE.Mesh(
@@ -330,7 +348,10 @@ export class Renderer {
       let group = this.stations.get(station.id)
       if (!group) {
         group = new THREE.Group()
-        const pad = new THREE.Mesh(stationGeometry, new THREE.MeshLambertMaterial({ color: station.accent, transparent: true, opacity: 0.7 }))
+        const pad = new THREE.Mesh(
+          stationGeometry,
+          new THREE.MeshLambertMaterial({ color: station.accent, transparent: true, opacity: 0.7 }),
+        )
         pad.scale.set(1.65, 1, 1.65)
         pad.receiveShadow = true
         const post = new THREE.Mesh(stationPostGeometry, new THREE.MeshLambertMaterial({ color: '#332318' }))
@@ -368,16 +389,16 @@ export class Renderer {
     const crown = new THREE.Mesh(canopyGeometry, new THREE.MeshLambertMaterial({ color: tree.tint, flatShading: true }))
     crown.position.y = trunkHeight + (tree.canopy === 'cone' ? 1.05 : 0.82)
     crown.castShadow = true
-    const stump = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.22, 0.3, 0.34, 7),
-      new THREE.MeshLambertMaterial({ color: trunkColor(tree) }),
-    )
+    const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.34, 7), new THREE.MeshLambertMaterial({ color: trunkColor(tree) }))
     stump.position.y = 0.17
     stump.castShadow = true
     stump.visible = false
     stump.name = 'stump'
     const cutBands = [0, 1, 2].map((index) => {
-      const band = new THREE.Mesh(cutBandGeometry, new THREE.MeshLambertMaterial({ color: index % 2 === 0 ? '#2f1a0d' : '#f0d28f', transparent: true, opacity: 0.92 }))
+      const band = new THREE.Mesh(
+        cutBandGeometry,
+        new THREE.MeshLambertMaterial({ color: index % 2 === 0 ? '#2f1a0d' : '#f0d28f', transparent: true, opacity: 0.92 }),
+      )
       band.name = `cut-band-${index}`
       band.position.y = 0.72 + index * 0.22
       band.rotation.x = Math.PI * 0.5
@@ -386,7 +407,10 @@ export class Renderer {
       return band
     })
     if (tree.kind === 'mythic') {
-      const glow = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), new THREE.MeshBasicMaterial({ color: '#d3fbff', transparent: true, opacity: 0.72 }))
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.26, 8, 6),
+        new THREE.MeshBasicMaterial({ color: '#d3fbff', transparent: true, opacity: 0.72 }),
+      )
       glow.position.y = trunkHeight + 1.8
       group.add(glow)
     }
@@ -429,7 +453,8 @@ export class Renderer {
         const shakeLife = tree.shakeTimer / TUNABLES.treeShakeDuration
         if (shakeLife > 0) {
           const axis = new THREE.Vector3(tree.shakeDirection.z, 0, -tree.shakeDirection.x).normalize()
-          const wobble = Math.sin((1 - shakeLife) * TUNABLES.treeShakeFrequency) * shakeLife * TUNABLES.treeShakeMaxAngle * (1 + tree.cutProgress * 0.45)
+          const wobble =
+            Math.sin((1 - shakeLife) * TUNABLES.treeShakeFrequency) * shakeLife * TUNABLES.treeShakeMaxAngle * (1 + tree.cutProgress * 0.45)
           group.quaternion.setFromAxisAngle(axis, wobble)
           group.scale.setScalar(tree.scale * highlight * (1 + shakeLife * 0.025))
         } else {
@@ -460,7 +485,10 @@ export class Renderer {
     for (const log of liveLogs) {
       let mesh = this.logs.get(log.id)
       if (!mesh) {
-        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 1, 10), new THREE.MeshLambertMaterial({ color: woodColor(log.woodType), flatShading: true }))
+        mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.34, 0.4, 1, 10),
+          new THREE.MeshLambertMaterial({ color: woodColor(log.woodType), flatShading: true }),
+        )
         mesh.castShadow = true
         mesh.receiveShadow = true
         this.scene.add(mesh)
@@ -519,7 +547,12 @@ export class Renderer {
     for (const event of events) {
       let sprite = this.feedback.get(event.id)
       if (!sprite) {
-        const color = event.kind === 'blocked' ? '#ff9d7a' : event.kind === 'cleave' || event.kind === 'upgrade' || event.kind === 'deposit' ? '#ffd166' : '#fff7df'
+        const color =
+          event.kind === 'blocked'
+            ? '#ff9d7a'
+            : event.kind === 'cleave' || event.kind === 'upgrade' || event.kind === 'deposit'
+              ? '#ffd166'
+              : '#fff7df'
         sprite = createTextSprite(event.label, color, 'rgba(17,25,13,0.48)')
         sprite.scale.set(2.2, 0.82, 1)
         this.scene.add(sprite)
@@ -578,7 +611,10 @@ export class Renderer {
       const vertical = isDust ? 0.08 + (index % 3) * 0.035 : isCleave ? 0.32 + (index % 4) * 0.06 : 0.45 + (index % 4) * 0.08
       const mesh = new THREE.Mesh(
         isDust ? new THREE.DodecahedronGeometry(0.08 + (index % 3) * 0.02, 0) : new THREE.BoxGeometry(0.14, 0.08, 0.08),
-        new THREE.MeshLambertMaterial({ color: isDust ? '#b79a61' : isCleave ? '#ffd166' : index % 3 === 0 ? '#d2a15d' : '#8b5d32', transparent: true }),
+        new THREE.MeshLambertMaterial({
+          color: isDust ? '#b79a61' : isCleave ? '#ffd166' : index % 3 === 0 ? '#d2a15d' : '#8b5d32',
+          transparent: true,
+        }),
       )
       mesh.userData.velocity = new THREE.Vector3(Math.cos(angle) * speed, vertical, Math.sin(angle) * speed)
       mesh.userData.spinX = 0.05 + (index % 4) * 0.018
@@ -597,7 +633,9 @@ export class Renderer {
     for (const ring of this.secondaryTargetRings) ring.visible = false
     if (targetTree) {
       this.targetRing.visible = true
-      this.targetRing.scale.setScalar(targetTree.status === 'fallen' ? 0.82 : targetTree.scale * (targetTree.kind === 'sapling' ? 0.78 : 1.05))
+      this.targetRing.scale.setScalar(
+        targetTree.status === 'fallen' ? 0.82 : targetTree.scale * (targetTree.kind === 'sapling' ? 0.78 : 1.05),
+      )
       const targetPosition =
         targetTree.status === 'fallen'
           ? {
@@ -607,7 +645,11 @@ export class Renderer {
           : targetTree.position
       this.targetRing.position.copy(toThree(targetPosition, 0.08))
       if (targetTree.status === 'standing') {
-        const fallDirection = new THREE.Vector3(targetTree.position.x - state.player.position.x, 0, targetTree.position.z - state.player.position.z).normalize()
+        const fallDirection = new THREE.Vector3(
+          targetTree.position.x - state.player.position.x,
+          0,
+          targetTree.position.z - state.player.position.z,
+        ).normalize()
         if (fallDirection.lengthSq() > 0.001) {
           this.fallGuide.visible = true
           this.fallGuide.position.copy(toThree(targetTree.position, 0.62))
@@ -634,7 +676,7 @@ export class Renderer {
               x: tree.position.x + tree.fallDirection.x * TUNABLES.treeHeight * tree.scale * 0.45,
               z: tree.position.z + tree.fallDirection.z * TUNABLES.treeHeight * tree.scale * 0.45,
             }
-          : tree?.position ?? log?.position
+          : (tree?.position ?? log?.position)
       if (!targetPosition) continue
       ring.visible = true
       ring.scale.setScalar(tree ? (tree.status === 'fallen' ? 0.7 : tree.scale * 0.68) : Math.max(0.44, (log?.scale ?? 1) * 0.66))
@@ -673,18 +715,8 @@ export class Renderer {
       target.z + this.cameraForward.z * lookAhead,
     )
     const targetFov = isPortrait ? 66 : 61
-    let cameraImpulse = 0
-    for (const event of state.feedback) {
-      if (!['hit', 'cleave', 'impact', 'fall', 'split'].includes(event.kind)) continue
-      const t = Math.min(1, event.age / TUNABLES.feedbackLifetime)
-      const strength = event.kind === 'hit' ? 0.08 : event.kind === 'cleave' ? 0.13 : event.kind === 'split' ? 0.18 : event.label === 'thud' ? 0.28 : 0.2
-      cameraImpulse += Math.sin((1 - t) * Math.PI * 3) * Math.pow(1 - t, 2) * strength
-    }
     if (this.camera.position.lengthSq() < 0.001) this.camera.position.copy(desiredPosition)
     else this.camera.position.lerp(desiredPosition, 0.22)
-    this.camera.position.y += cameraImpulse
-    this.camera.position.x += -this.cameraForward.z * cameraImpulse * 0.22
-    this.camera.position.z += this.cameraForward.x * cameraImpulse * 0.22
     if (this.cameraLookAt.lengthSq() < 0.001) this.cameraLookAt.copy(desiredLookAt)
     else this.cameraLookAt.lerp(desiredLookAt, 0.28)
     if (Math.abs(this.camera.fov - targetFov) > 0.01) {
@@ -692,13 +724,15 @@ export class Renderer {
       this.camera.updateProjectionMatrix()
     }
     this.camera.lookAt(this.cameraLookAt)
-    ;(window as Window & {
-      __TREE_CHOPPING_CAMERA__?: {
-        position: { x: number; y: number; z: number }
-        lookAt: { x: number; y: number; z: number }
-        fov: number
+    ;(
+      window as Window & {
+        __TREE_CHOPPING_CAMERA__?: {
+          position: { x: number; y: number; z: number }
+          lookAt: { x: number; y: number; z: number }
+          fov: number
+        }
       }
-    }).__TREE_CHOPPING_CAMERA__ = {
+    ).__TREE_CHOPPING_CAMERA__ = {
       position: { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z },
       lookAt: { x: this.cameraLookAt.x, y: this.cameraLookAt.y, z: this.cameraLookAt.z },
       fov: this.camera.fov,

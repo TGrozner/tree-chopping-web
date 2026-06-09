@@ -1,5 +1,4 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
-import { Renderer } from '../render/Renderer'
 import type { GameState } from '../game/types'
 
 type Props = {
@@ -12,16 +11,24 @@ export const GameCanvas = ({ stateRef }: Props) => {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const renderer = new Renderer(canvas)
+    let disposed = false
     let raf = 0
-    const render = (): void => {
-      renderer.render(stateRef.current)
+    let renderer: import('../render/Renderer').Renderer | null = null
+
+    void import('../render/Renderer').then(({ Renderer }) => {
+      if (disposed) return
+      renderer = new Renderer(canvas)
+      const render = (): void => {
+        renderer?.render(stateRef.current)
+        raf = requestAnimationFrame(render)
+      }
       raf = requestAnimationFrame(render)
-    }
-    raf = requestAnimationFrame(render)
+    })
+
     return () => {
+      disposed = true
       cancelAnimationFrame(raf)
-      renderer.dispose()
+      renderer?.dispose()
     }
   }, [stateRef])
 

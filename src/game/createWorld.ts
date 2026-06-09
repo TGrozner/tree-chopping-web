@@ -1,4 +1,4 @@
-import { add, distance, normalize, scale, vec } from './math'
+import { add, distance, normalize, vec } from './math'
 import { biomeForPosition } from './terrain'
 import { emptyInventory, STATION_ACCENTS, STATION_LABELS, TREE_SPECS, TUNABLES } from './tunables'
 import type { GameState, Station, StationKind, Tree, TreeKind, Vec2, WoodType } from './types'
@@ -180,6 +180,7 @@ export const createWorld = (seed = 0xca5c): GameState => {
     powerTier: 0,
     backpackTier: 0,
     petTier: 0,
+    selectedUpgrade: 'speed',
     spirits: 0,
     swing: {
       phase: 'idle',

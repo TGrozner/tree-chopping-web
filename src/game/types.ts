@@ -11,6 +11,7 @@ export type TreeStatus = 'standing' | 'falling' | 'fallen'
 export type LogStatus = 'falling' | 'landed' | 'split'
 export type StationKind = 'tools' | 'depot' | 'upgrades' | 'prestige'
 export type SwingPhase = 'idle' | 'windup' | 'recovery'
+export type UpgradeKind = 'speed' | 'backpack' | 'power' | 'luck' | 'pet'
 
 export type Tree = {
   id: string
@@ -101,6 +102,7 @@ export type GameInput = {
   interactRequests: number
   depositRequests: number
   teleportRequests: number
+  upgradeRequests: UpgradeKind[]
 }
 
 export type SwingState = {
@@ -150,6 +152,7 @@ export type GameState = {
   powerTier: number
   backpackTier: number
   petTier: number
+  selectedUpgrade: UpgradeKind
   spirits: number
   swing: SwingState
   feedback: FeedbackEvent[]
@@ -167,6 +170,7 @@ export type DebugSnapshot = {
   backpackTotal: number
   backpackCapacity: number
   axeTier: number
+  selectedUpgrade: UpgradeKind
   activeStationId: string | null
   currentTargetId: string | null
   currentSwingTargetIds: string[]
@@ -193,6 +197,7 @@ export type TreeChoppingTestApi = {
   reset: () => void
   resetRun: () => void
   saveNow: () => void
+  selectUpgrade: (upgrade: UpgradeKind) => void
 }
 
 declare global {

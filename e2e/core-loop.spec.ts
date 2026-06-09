@@ -3,10 +3,7 @@ import { clearSavedRun } from './helpers'
 
 const pressSwing = async (page: Page, expectedHits: number): Promise<void> => {
   await page.keyboard.press('Space')
-  await page.waitForFunction(
-    (hits) => (window as any).__TREE_CHOPPING_TEST__.getState().stats.hits >= hits,
-    expectedHits,
-  )
+  await page.waitForFunction((hits) => (window as any).__TREE_CHOPPING_TEST__.getState().stats.hits >= hits, expectedHits)
 }
 
 const movePlayerToFallenTrunk = async (page: Page): Promise<string> =>
@@ -14,8 +11,12 @@ const movePlayerToFallenTrunk = async (page: Page): Promise<string> =>
     const api = (window as any).__TREE_CHOPPING_TEST__
     const state = api.getState()
     const tree =
-      state.trees.find((candidate: any) => candidate.id === state.currentTargetId && candidate.status === 'fallen' && !candidate.splitDone) ??
-      state.trees.find((candidate: any) => candidate.id === state.swing.lastTargetId && candidate.status === 'fallen' && !candidate.splitDone) ??
+      state.trees.find(
+        (candidate: any) => candidate.id === state.currentTargetId && candidate.status === 'fallen' && !candidate.splitDone,
+      ) ??
+      state.trees.find(
+        (candidate: any) => candidate.id === state.swing.lastTargetId && candidate.status === 'fallen' && !candidate.splitDone,
+      ) ??
       state.trees.find((candidate: any) => candidate.status === 'fallen' && !candidate.splitDone)
     if (!tree) throw new Error('missing fallen trunk')
     const center = {
@@ -76,7 +77,10 @@ test('core loop: swing, fallen tree, backpack, depot, and hub return', async ({ 
   })
 
   const trunkId = await movePlayerToFallenTrunk(page)
-  await page.waitForFunction((targetTrunkId) => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().currentTargetId === targetTrunkId, trunkId)
+  await page.waitForFunction(
+    (targetTrunkId) => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().currentTargetId === targetTrunkId,
+    trunkId,
+  )
   await pressSwing(page, 4)
   await pressSwing(page, 5)
   await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().woodItems >= 1)

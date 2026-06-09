@@ -7,7 +7,6 @@ type ControlsApi = {
   requestDeposit: () => void
   requestInteract: () => void
   requestTeleport: () => void
-  resetRun: () => void
 }
 
 type Props = {
@@ -106,17 +105,6 @@ export const GameControls = ({ controls }: Props) => (
         type="button"
       >
         R
-      </button>
-      <button
-        aria-label="Reset run"
-        className="touch-button small-action"
-        onPointerDown={(event) => {
-          stop(event)
-          controls.resetRun()
-        }}
-        type="button"
-      >
-        RS
       </button>
     </div>
   </div>

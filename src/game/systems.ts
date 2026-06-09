@@ -1,16 +1,61 @@
 import { add, clamp, distance, distanceSq, dot, lengthSq, nearestPointOnSegment, normalize, rotate, scale, sub, vec } from './math'
 import { terrainHeightAt } from './terrain'
-import { AXE_CHOP_POWER, AXE_COSTS, AXE_NAMES, AXE_WOOD_MULTIPLIER, BACKPACK_CAPS, BACKPACK_COSTS, TUNABLES, WOOD_TYPES, emptyInventory } from './tunables'
-import type { FeedbackEvent, GameInput, GameState, Inventory, Log, Station, Tree, Vec2, WoodItem, WoodType } from './types'
+import {
+  AXE_CHOP_POWER,
+  AXE_COSTS,
+  AXE_NAMES,
+  AXE_WOOD_MULTIPLIER,
+  BACKPACK_CAPS,
+  BACKPACK_COSTS,
+  TUNABLES,
+  WOOD_TYPES,
+  emptyInventory,
+} from './tunables'
+import type { FeedbackEvent, GameInput, GameState, Inventory, Log, Station, Tree, UpgradeKind, Vec2, WoodItem, WoodType } from './types'
 
 type TreeTarget = { type: 'tree'; tree: Tree; score: number }
 type LogTarget = { type: 'log'; tree: Tree; score: number }
 type SubLogTarget = { type: 'sublog'; log: Log; score: number }
 type Target = TreeTarget | LogTarget | SubLogTarget
+type PassiveUpgradeKind = Exclude<UpgradeKind, 'backpack'>
+type PassiveUpgradeSpec = {
+  key: 'speedTier' | 'powerTier' | 'luckTier' | 'petTier'
+  label: string
+  baseCost: number
+}
+
+const PASSIVE_MAX_TIER = 5
+const PASSIVE_UPGRADES: Record<PassiveUpgradeKind, PassiveUpgradeSpec> = {
+  speed: { key: 'speedTier', label: 'speed', baseCost: 14 },
+  power: { key: 'powerTier', label: 'power', baseCost: 24 },
+  luck: { key: 'luckTier', label: 'luck', baseCost: 46 },
+  pet: { key: 'petTier', label: 'pet', baseCost: 70 },
+}
+
+export const UPGRADE_CHOICES: readonly UpgradeKind[] = ['speed', 'backpack', 'power', 'luck', 'pet']
 
 export const inventoryTotal = (inventory: Inventory): number => WOOD_TYPES.reduce((sum, type) => sum + inventory[type], 0)
 export const backpackCapacity = (state: GameState): number => BACKPACK_CAPS[Math.min(state.backpackTier, BACKPACK_CAPS.length - 1)]
 export const backpackTotal = (state: GameState): number => inventoryTotal(state.backpack)
+
+export const upgradeLabel = (kind: UpgradeKind): string => (kind === 'backpack' ? 'pack' : PASSIVE_UPGRADES[kind].label)
+
+export const upgradeTier = (state: GameState, kind: UpgradeKind): number =>
+  kind === 'backpack' ? state.backpackTier : state[PASSIVE_UPGRADES[kind].key]
+
+export const upgradeMaxTier = (kind: UpgradeKind): number => (kind === 'backpack' ? BACKPACK_CAPS.length - 1 : PASSIVE_MAX_TIER)
+
+export const upgradeCost = (state: GameState, kind: UpgradeKind): number | null => {
+  const current = upgradeTier(state, kind)
+  if (current >= upgradeMaxTier(kind)) return null
+  if (kind === 'backpack') return BACKPACK_COSTS[current + 1]
+  return Math.ceil(PASSIVE_UPGRADES[kind].baseCost * Math.pow(1.85, current))
+}
+
+export const canAffordUpgrade = (state: GameState, kind: UpgradeKind): boolean => {
+  const cost = upgradeCost(state, kind)
+  return cost !== null && state.stockpile.wood >= cost
+}
 
 const formatWood = (type: WoodType): string => {
   if (type === 'finewood') return 'Finewood'
@@ -90,7 +135,8 @@ const targetAimScore = (state: GameState, toTarget: Vec2): number => {
   return Math.max(cameraScore, movementScore)
 }
 
-const targetCameraScore = (state: GameState, toTarget: Vec2): number => dot(normalize(toTarget, state.player.facing), yawToFacing(state.player.cameraYaw))
+const targetCameraScore = (state: GameState, toTarget: Vec2): number =>
+  dot(normalize(toTarget, state.player.facing), yawToFacing(state.player.cameraYaw))
 
 const standingTreeStickyBonus = (state: GameState, tree: Tree): number => {
   if (tree.id === state.swing.lastTargetId) return TUNABLES.targetStickyBonus
@@ -101,7 +147,14 @@ const standingTreeStickyBonus = (state: GameState, tree: Tree): number => {
 const targetDistanceToEdge = (state: GameState, position: Vec2, radius: number): number =>
   Math.max(0, Math.sqrt(distanceSq(position, state.player.position)) - radius)
 
-const targetScore = (state: GameState, position: Vec2, radius: number, range: number, turnPenalty: number, scoreBonus = 0): number | null => {
+const targetScore = (
+  state: GameState,
+  position: Vec2,
+  radius: number,
+  range: number,
+  turnPenalty: number,
+  scoreBonus = 0,
+): number | null => {
   const toTarget = sub(position, state.player.position)
   const distanceToEdge = targetDistanceToEdge(state, position, radius)
   if (distanceToEdge > range) return null
@@ -118,7 +171,14 @@ const findTreeTargetCandidate = (state: GameState): TreeTarget | null => {
   const range = targetRange(state)
   for (const tree of state.trees) {
     if (tree.status !== 'standing') continue
-    const score = targetScore(state, tree.position, TUNABLES.targetAssistRadius * tree.scale, range, 2.2, standingTreeStickyBonus(state, tree))
+    const score = targetScore(
+      state,
+      tree.position,
+      TUNABLES.targetAssistRadius * tree.scale,
+      range,
+      2.2,
+      standingTreeStickyBonus(state, tree),
+    )
     if (score === null) continue
     if (!best || score < best.score) best = { type: 'tree', tree, score }
   }
@@ -179,7 +239,9 @@ const findSubLogTargetCandidate = (state: GameState): SubLogTarget | null => {
 }
 
 const findTarget = (state: GameState): Target | null => {
-  const candidates = [findTreeTargetCandidate(state), findLogTargetCandidate(state), findSubLogTargetCandidate(state)].filter((target): target is Target => Boolean(target))
+  const candidates = [findTreeTargetCandidate(state), findLogTargetCandidate(state), findSubLogTargetCandidate(state)].filter(
+    (target): target is Target => Boolean(target),
+  )
   if (candidates.length === 0) return null
   return candidates.reduce((best, candidate) => (candidate.score < best.score ? candidate : best))
 }
@@ -193,7 +255,7 @@ const updateTarget = (state: GameState): void => {
   }
 
   const target = findTarget(state)
-  state.currentTargetId = target?.type === 'sublog' ? target.log.id : target?.tree.id ?? null
+  state.currentTargetId = target?.type === 'sublog' ? target.log.id : (target?.tree.id ?? null)
   state.currentSwingTargetIds = state.currentTargetId ? [state.currentTargetId] : []
 }
 
@@ -328,7 +390,8 @@ const spawnHalfLogs = (state: GameState, tree: Tree): void => {
   addFeedback(state, 'split', 'half logs', center)
 }
 
-const hitLabel = (damage: number, comboMultiplier: number): string => (comboMultiplier > 1 ? `x${comboMultiplier} -${damage}` : `-${damage}`)
+const hitLabel = (damage: number, comboMultiplier: number): string =>
+  comboMultiplier > 1 ? `x${comboMultiplier} -${damage}` : `-${damage}`
 
 const fallImpulseForHit = (tree: Tree, healthBeforeHit: number, damage: number, comboMultiplier: number): number => {
   const comboImpulse = comboMultiplier > 1 ? TUNABLES.comboFallImpulseMultiplier - 1 : 0
@@ -353,7 +416,14 @@ const applyTreeHit = (state: GameState, tree: Tree, comboMultiplier: number): bo
   state.stats.hits += 1
   addFeedback(state, 'hit', hitLabel(damage, comboMultiplier), tree.position)
   setMessage(state, `${comboMultiplier > 1 ? 'Combo! ' : ''}${tree.kind} ${Math.max(0, tree.health)}/${tree.maxHealth}`)
-  if (tree.health <= 0) fellTree(state, tree, sub(tree.position, state.player.position), false, fallImpulseForHit(tree, healthBeforeHit, damage, comboMultiplier))
+  if (tree.health <= 0)
+    fellTree(
+      state,
+      tree,
+      sub(tree.position, state.player.position),
+      false,
+      fallImpulseForHit(tree, healthBeforeHit, damage, comboMultiplier),
+    )
   return true
 }
 
@@ -370,14 +440,17 @@ const applyLogHit = (state: GameState, tree: Tree, comboMultiplier: number): boo
   const hitDirection = normalize(sub(getFallenTreeCenter(tree), state.player.position), state.player.facing)
   const rollDirection = logRollDirection(tree)
   const controlledRollDirection = dot(hitDirection, rollDirection) >= 0 ? rollDirection : scale(rollDirection, -1)
-  const kick = (TUNABLES.logHitKickSpeed + damage * 0.18) * comboMultiplier / treeMass(tree)
+  const kick = ((TUNABLES.logHitKickSpeed + damage * 0.18) * comboMultiplier) / treeMass(tree)
   tree.logVelocity = add(tree.logVelocity, scale(controlledRollDirection, kick))
   tree.logAngularVelocity += (dot(controlledRollDirection, rollDirection) >= 0 ? 1 : -1) * TUNABLES.logHitSpin * comboMultiplier
   tree.shakeTimer = TUNABLES.treeShakeDuration * 0.6
   tree.shakeDirection = normalize(sub(getFallenTreeCenter(tree), state.player.position), tree.fallDirection)
   state.stats.hits += 1
   addFeedback(state, 'hit', hitLabel(damage, comboMultiplier), getFallenTreeCenter(tree))
-  setMessage(state, `${comboMultiplier > 1 ? 'Combo! ' : ''}${formatWood(tree.woodType)} trunk ${Math.max(0, tree.logHealth)}/${tree.logMaxHealth}`)
+  setMessage(
+    state,
+    `${comboMultiplier > 1 ? 'Combo! ' : ''}${formatWood(tree.woodType)} trunk ${Math.max(0, tree.logHealth)}/${tree.logMaxHealth}`,
+  )
   if (tree.logHealth <= 0) {
     if (tree.reward >= TUNABLES.halfLogMinReward || tree.kind !== 'sapling') spawnHalfLogs(state, tree)
     else spawnWoodItems(state, tree)
@@ -399,7 +472,10 @@ const applySubLogHit = (state: GameState, log: Log, comboMultiplier: number): bo
   log.angularVelocity += 1.8 + damage * 0.2
   state.stats.hits += 1
   addFeedback(state, 'hit', hitLabel(damage, comboMultiplier), log.position)
-  setMessage(state, `${comboMultiplier > 1 ? 'Combo! ' : ''}${formatWood(log.woodType)} half-log ${Math.max(0, log.health)}/${log.maxHealth}`)
+  setMessage(
+    state,
+    `${comboMultiplier > 1 ? 'Combo! ' : ''}${formatWood(log.woodType)} half-log ${Math.max(0, log.health)}/${log.maxHealth}`,
+  )
   if (log.health > 0) return true
 
   log.status = 'split'
@@ -449,14 +525,26 @@ const findSwingHits = (state: GameState): Target[] => {
 
   for (const tree of state.trees) {
     if (tree.status === 'standing') {
-      const score = swingScore(state, tree.position, TUNABLES.targetAssistRadius * tree.scale, treeRange, standingTreeStickyBonus(state, tree))
+      const score = swingScore(
+        state,
+        tree.position,
+        TUNABLES.targetAssistRadius * tree.scale,
+        treeRange,
+        standingTreeStickyBonus(state, tree),
+      )
       if (score !== null) hits.push({ type: 'tree', tree, score })
       continue
     }
     if (tree.status !== 'fallen' || tree.splitDone) continue
     const nearest = nearestPointOnSegment(state.player.position, tree.position, getTreePhysicsTip(tree))
     const sticky = tree.id === state.swing.lastTargetId
-    const score = swingScore(state, nearest, TUNABLES.logTargetAssistRadius, logRange + (sticky ? 0.55 : 0), sticky ? TUNABLES.targetStickyBonus : 0)
+    const score = swingScore(
+      state,
+      nearest,
+      TUNABLES.logTargetAssistRadius,
+      logRange + (sticky ? 0.55 : 0),
+      sticky ? TUNABLES.targetStickyBonus : 0,
+    )
     if (score !== null) hits.push({ type: 'log', tree, score })
   }
 
@@ -465,7 +553,13 @@ const findSwingHits = (state: GameState): Target[] => {
     const [start, end] = getSubLogEndPoints(log)
     const nearest = nearestPointOnSegment(state.player.position, start, end)
     const sticky = log.id === state.swing.lastTargetId
-    const score = swingScore(state, nearest, TUNABLES.logTargetAssistRadius * 0.82, logRange + 0.2 + (sticky ? 0.35 : 0), sticky ? TUNABLES.targetStickyBonus : 0)
+    const score = swingScore(
+      state,
+      nearest,
+      TUNABLES.logTargetAssistRadius * 0.82,
+      logRange + 0.2 + (sticky ? 0.35 : 0),
+      sticky ? TUNABLES.targetStickyBonus : 0,
+    )
     if (score !== null) hits.push({ type: 'sublog', log, score })
   }
 
@@ -635,7 +729,7 @@ const updateFallingTrees = (state: GameState, dt: number): void => {
   for (const tree of state.trees) {
     if (tree.status !== 'falling') continue
     const mass = treeMass(tree)
-    const torque = TUNABLES.treeAngularGravity * Math.max(0.18, Math.sin(tree.fallAngle + 0.18)) / mass
+    const torque = (TUNABLES.treeAngularGravity * Math.max(0.18, Math.sin(tree.fallAngle + 0.18))) / mass
     tree.angularVelocity += torque * dt
     tree.angularVelocity *= Math.exp(-TUNABLES.treeAngularDamping * dt * 0.18)
     tree.fallAngle = clamp(tree.fallAngle + tree.angularVelocity * dt, 0, TUNABLES.treeGroundAngle)
@@ -655,11 +749,15 @@ const updateFallingTrees = (state: GameState, dt: number): void => {
         tree.impactedTreeIds.push(impactKey)
         const alongTrunk = clamp(distance(tree.position, nearest) / trunkLength, 0, 1)
         const impactDamage = Math.ceil(
-          (TUNABLES.treeImpactDamage + energy * TUNABLES.treeImpactEnergyDamage) *
-            Math.max(0.82, tree.scale) *
-            (0.72 + alongTrunk * 0.68),
+          (TUNABLES.treeImpactDamage + energy * TUNABLES.treeImpactEnergyDamage) * Math.max(0.82, tree.scale) * (0.72 + alongTrunk * 0.68),
         )
-        const knockedDown = impactStandingTree(state, tree, other, normalize(sub(other.position, tree.position), tree.fallDirection), impactDamage)
+        const knockedDown = impactStandingTree(
+          state,
+          tree,
+          other,
+          normalize(sub(other.position, tree.position), tree.fallDirection),
+          impactDamage,
+        )
         tree.angularVelocity *= knockedDown ? TUNABLES.treeSweepCascadeDamping : TUNABLES.treeSweepSurvivorDamping
       }
     }
@@ -742,7 +840,7 @@ const updateSubLogs = (state: GameState, dt: number): void => {
     log.position = add(log.position, scale(log.velocity, dt))
     log.velocity = scale(log.velocity, Math.exp(-TUNABLES.logFriction * 0.92 * dt))
     const speed = Math.sqrt(lengthSq(log.velocity))
-    log.rollAngle += speed * dt / Math.max(0.12, TUNABLES.logRollRadius * log.scale)
+    log.rollAngle += (speed * dt) / Math.max(0.12, TUNABLES.logRollRadius * log.scale)
     log.angularVelocity *= Math.exp(-TUNABLES.logAngularDamping * 0.35 * dt)
     if (speed < 0.03 && Math.abs(log.angularVelocity) < 0.05) {
       log.velocity = vec(0, 0)
@@ -815,11 +913,23 @@ export const tryUpgradeAxe = (state: GameState): boolean => {
   return true
 }
 
-const tryUpgradeBackpack = (state: GameState): boolean => {
+export const selectUpgrade = (state: GameState, kind: UpgradeKind): void => {
+  state.selectedUpgrade = kind
+  const cost = upgradeCost(state, kind)
+  setMessage(state, cost === null ? `${upgradeLabel(kind)} maxed.` : `${upgradeLabel(kind)} selected: ${cost} wood.`)
+}
+
+export const tryUpgradeBackpack = (state: GameState): boolean => {
   const nextTier = state.backpackTier + 1
-  if (nextTier >= BACKPACK_CAPS.length) return false
+  if (nextTier >= BACKPACK_CAPS.length) {
+    setMessage(state, 'Backpack maxed.')
+    return false
+  }
   const cost = BACKPACK_COSTS[nextTier]
-  if (state.stockpile.wood < cost) return false
+  if (state.stockpile.wood < cost) {
+    setMessage(state, `Backpack costs ${cost} wood.`)
+    return false
+  }
   state.stockpile.wood -= cost
   state.backpackTier = nextTier
   state.stats.upgrades += 1
@@ -828,28 +938,30 @@ const tryUpgradeBackpack = (state: GameState): boolean => {
   return true
 }
 
-const tryUpgradePassive = (state: GameState, key: 'speedTier' | 'powerTier' | 'luckTier' | 'petTier', label: string, baseCost: number): boolean => {
-  const current = state[key]
-  if (current >= 5) return false
-  const cost = Math.ceil(baseCost * Math.pow(1.85, current))
-  if (state.stockpile.wood < cost) return false
+const tryUpgradePassive = (state: GameState, kind: PassiveUpgradeKind): boolean => {
+  const spec = PASSIVE_UPGRADES[kind]
+  const current = state[spec.key]
+  if (current >= PASSIVE_MAX_TIER) {
+    setMessage(state, `${spec.label} maxed.`)
+    return false
+  }
+  const cost = upgradeCost(state, kind) ?? 0
+  if (state.stockpile.wood < cost) {
+    setMessage(state, `${spec.label} costs ${cost} wood.`)
+    return false
+  }
   state.stockpile.wood -= cost
-  state[key] += 1
+  state[spec.key] += 1
   state.stats.upgrades += 1
-  addFeedback(state, 'upgrade', label, state.player.position)
-  setMessage(state, `${label} tier ${state[key]}.`)
+  addFeedback(state, 'upgrade', spec.label, state.player.position)
+  setMessage(state, `${spec.label} tier ${state[spec.key]}.`)
   return true
 }
 
-export const tryUpgradeAtStation = (state: GameState): boolean => {
-  if (tryUpgradeBackpack(state)) return true
-  if (tryUpgradePassive(state, 'speedTier', 'speed', 14)) return true
-  if (tryUpgradePassive(state, 'powerTier', 'power', 24)) return true
-  if (tryUpgradePassive(state, 'luckTier', 'luck', 46)) return true
-  if (tryUpgradePassive(state, 'petTier', 'pet', 70)) return true
-  setMessage(state, 'No affordable upgrade.')
-  return false
-}
+export const tryUpgradeChoice = (state: GameState, kind: UpgradeKind = state.selectedUpgrade): boolean =>
+  kind === 'backpack' ? tryUpgradeBackpack(state) : tryUpgradePassive(state, kind)
+
+export const tryUpgradeAtStation = (state: GameState): boolean => tryUpgradeChoice(state, state.selectedUpgrade)
 
 export const tryPrestige = (state: GameState): boolean => {
   if (inventoryTotal(state.stockpile) < TUNABLES.prestigeCost || state.axeTier < 4) {
@@ -864,6 +976,7 @@ export const tryPrestige = (state: GameState): boolean => {
   state.powerTier = 0
   state.backpackTier = 0
   state.petTier = 0
+  state.selectedUpgrade = 'speed'
   state.spirits += 1
   state.stats.upgrades += 1
   addFeedback(state, 'prestige', `spirit ${state.spirits}`, state.player.position)
@@ -912,6 +1025,13 @@ const processRequests = (state: GameState, input: GameInput): void => {
     else setMessage(state, 'Use the Wood Depot station.')
     input.depositRequests -= 1
   }
+  while (input.upgradeRequests.length > 0) {
+    const choice = input.upgradeRequests.shift()
+    if (!choice) continue
+    selectUpgrade(state, choice)
+    if (state.activeStationId === 'station-upgrades') tryUpgradeChoice(state, choice)
+    else setMessage(state, 'Use the Upgrades station.')
+  }
   while (input.interactRequests > 0) {
     interactWithStation(state)
     input.interactRequests -= 1
@@ -946,4 +1066,5 @@ export const createEmptyInput = (): GameInput => ({
   interactRequests: 0,
   depositRequests: 0,
   teleportRequests: 0,
+  upgradeRequests: [],
 })

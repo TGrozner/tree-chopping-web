@@ -1,5 +1,5 @@
 import { createWorld } from './createWorld'
-import type { GameState, Inventory, SwingState, Vec2 } from './types'
+import type { GameState, Inventory, SwingState, UpgradeKind, Vec2 } from './types'
 
 export const SAVE_KEY = 'tree-chopping-web:save:v1'
 const SAVE_VERSION = 1
@@ -13,6 +13,7 @@ type SavePayload = {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+const upgradeKinds = new Set<UpgradeKind>(['speed', 'backpack', 'power', 'luck', 'pet'])
 
 const inventory = (value: unknown, fallback: Inventory): Inventory => {
   if (!isRecord(value)) return { ...fallback }
@@ -63,6 +64,9 @@ export const sanitizeLoadedState = (candidate: unknown): GameState | null => {
     stations: Array.isArray(state.stations) ? state.stations : fallback.stations,
     stockpile: inventory(state.stockpile, fallback.stockpile),
     backpack: inventory(state.backpack, fallback.backpack),
+    selectedUpgrade: upgradeKinds.has(state.selectedUpgrade as UpgradeKind)
+      ? (state.selectedUpgrade as UpgradeKind)
+      : fallback.selectedUpgrade,
     swing: sanitizeSwing(fallback.swing),
     feedback: [],
     currentTargetId: null,
