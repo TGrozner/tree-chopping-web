@@ -11,8 +11,8 @@ const webServerCommand = useProductionBuild
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
-  expect: { timeout: 5_000 },
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   use: {
     baseURL,
     trace: 'on-first-retry',

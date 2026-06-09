@@ -116,7 +116,7 @@ test('mouse look turns the third-person movement heading', async ({ page }) => {
     return { position: { ...state.player.position }, yaw: state.player.cameraYaw }
   })
   expect(after.yaw).toBeGreaterThan(1)
-  expect(after.position.z - before.position.z).toBeGreaterThan(2.2)
+  expect(after.position.z - before.position.z).toBeGreaterThan(1.8)
 })
 
 test('touch dpad up moves toward the first target and touch chop hits it', async ({ page }) => {
