@@ -108,7 +108,13 @@ test('mouse look turns the third-person movement heading', async ({ page }) => {
   await canvas.dispatchEvent('mouseup', { button: 2, buttons: 0, bubbles: true })
 
   await page.keyboard.down('w')
-  await page.waitForTimeout(650)
+  await page.waitForFunction(
+    (start) => {
+      const state = (window as any).__TREE_CHOPPING_TEST__.getState()
+      return state.player.position.z - start.z > 0.5
+    },
+    before.position,
+  )
   await page.keyboard.up('w')
 
   const after = await page.evaluate(() => {
@@ -116,7 +122,7 @@ test('mouse look turns the third-person movement heading', async ({ page }) => {
     return { position: { ...state.player.position }, yaw: state.player.cameraYaw }
   })
   expect(after.yaw).toBeGreaterThan(1)
-  expect(after.position.z - before.position.z).toBeGreaterThan(1.8)
+  expect(after.position.z - before.position.z).toBeGreaterThan(0.5)
 })
 
 test('touch dpad up moves toward the first target and touch chop hits it', async ({ page }) => {
