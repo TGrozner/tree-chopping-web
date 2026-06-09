@@ -22,6 +22,8 @@ npm run dev
 
 Open the local Vite URL, usually `http://localhost:5173`.
 
+Production target: `https://tgrozner.github.io/tree-chopping-web/`.
+
 ## Controls
 
 - `WASD` or arrow keys: move

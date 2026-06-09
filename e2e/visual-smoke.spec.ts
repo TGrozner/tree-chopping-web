@@ -117,7 +117,7 @@ for (const viewport of [
   test(`cleave visual smoke ${viewport.name}`, async ({ page }) => {
     await clearSavedRun(page)
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
-    await page.goto('/')
+    await page.goto('./')
     await waitForGame(page)
     await setupCleave(page)
 

@@ -1,17 +1,26 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const host = '127.0.0.1'
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173)
+const basePath = (process.env.VITE_BASE_PATH ?? '/').replace(/\/?$/, '/')
+const baseURL = `http://${host}:${port}${basePath}`
+const useProductionBuild = process.env.PLAYWRIGHT_USE_BUILD !== 'false'
+const webServerCommand = useProductionBuild
+  ? `npm run build && npm run preview -- --host ${host} --port ${port}`
+  : `npm run dev -- --host ${host} --port ${port}`
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   expect: { timeout: 5_000 },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL,
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run build && npm run preview -- --host 127.0.0.1 --port 4173',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    command: webServerCommand,
+    url: baseURL,
+    reuseExistingServer: !process.env.CI && !useProductionBuild,
     timeout: 120_000,
   },
   projects: [

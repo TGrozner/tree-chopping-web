@@ -61,7 +61,7 @@ test('core loop: swing, fallen tree, backpack, depot, and hub return', async ({ 
   })
 
   await clearSavedRun(page)
-  await page.goto('/')
+  await page.goto('./')
   await expect(page.getByLabel('Tree Chopping Web game canvas')).toBeVisible()
 
   await page.waitForFunction(() => Boolean((window as any).__TREE_CHOPPING_TEST__))

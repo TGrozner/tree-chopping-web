@@ -12,7 +12,7 @@ const intersects = (a: Box, b: Box): boolean =>
 
 const waitForGame = async (page: Page): Promise<void> => {
   await clearSavedRun(page)
-  await page.goto('/')
+  await page.goto('./')
   await waitForGameApi(page)
   await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().currentTargetId === 'starter-sapling-000')
 }
@@ -168,7 +168,7 @@ test('touch dpad up moves toward the first target and touch chop hits it', async
 })
 
 test('saved progression survives reload and reset run clears it', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await waitForGameApi(page)
   await page.evaluate((key) => window.localStorage.removeItem(key), saveKey)
   await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.resetRun())
