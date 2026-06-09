@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createWorld } from '../game/createWorld'
 import { getDebugSnapshot } from '../game/debug'
+import { loadGameState, removeGameState, saveGameState } from '../game/persistence'
 import { createEmptyInput, stepGame } from '../game/systems'
 import { normalize, vec } from '../game/math'
 import type { FeedbackEvent, GameInput, GameState } from '../game/types'
@@ -14,12 +15,22 @@ const keyToInput = (input: GameInput, code: string, value: boolean): void => {
   if (code === 'KeyD' || code === 'ArrowRight') input.right = value
 }
 
+const browserStorage = (): Storage | null => {
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
 export const useTreeChoppingGame = () => {
-  const stateRef = useRef<GameState>(createWorld())
+  const initialState = useMemo(() => loadGameState(browserStorage()) ?? createWorld(), [])
+  const stateRef = useRef<GameState>(initialState)
   const inputRef = useRef<GameInput>(createEmptyInput())
   const lookHeldRef = useRef(false)
   const audioRef = useRef<AudioContext | null>(null)
   const playedFeedbackRef = useRef<Set<number>>(new Set())
+  const lastSaveRef = useRef(0)
   const [, forceRender] = useState(0)
 
   const ensureAudio = useCallback((): AudioContext | null => {
@@ -61,7 +72,7 @@ export const useTreeChoppingGame = () => {
     for (const event of stateRef.current.feedback) {
       if (playedFeedbackRef.current.has(event.id)) continue
       playedFeedbackRef.current.add(event.id)
-      if (!['hit', 'impact', 'fall', 'split'].includes(event.kind)) continue
+      if (!['hit', 'cleave', 'impact', 'fall', 'split'].includes(event.kind)) continue
       playFeedbackSound(event)
     }
   }, [playFeedbackSound])
@@ -91,9 +102,23 @@ export const useTreeChoppingGame = () => {
     inputRef.current.teleportRequests += 1
   }, [])
 
+  const saveNow = useCallback((): void => {
+    saveGameState(browserStorage(), stateRef.current)
+    lastSaveRef.current = performance.now()
+  }, [])
+
+  const resetRun = useCallback((): void => {
+    removeGameState(browserStorage())
+    stateRef.current = createWorld()
+    inputRef.current = createEmptyInput()
+    playedFeedbackRef.current.clear()
+    lastSaveRef.current = 0
+    forceRender((value) => value + 1)
+  }, [])
+
   const controls = useMemo(
-    () => ({ setMoveInput, requestChop, requestDeposit, requestInteract, requestTeleport, setChopHeld }),
-    [requestChop, requestDeposit, requestInteract, requestTeleport, setChopHeld, setMoveInput],
+    () => ({ setMoveInput, requestChop, requestDeposit, requestInteract, requestTeleport, resetRun, setChopHeld }),
+    [requestChop, requestDeposit, requestInteract, requestTeleport, resetRun, setChopHeld, setMoveInput],
   )
 
   useEffect(() => {
@@ -104,6 +129,7 @@ export const useTreeChoppingGame = () => {
       if ((event.code === 'KeyE' || event.code === 'Enter') && !event.repeat) requestInteract()
       if (event.code === 'KeyF' && !event.repeat) requestDeposit()
       if (event.code === 'KeyR' && !event.repeat) requestTeleport()
+      if (event.code === 'Backspace' && event.shiftKey && !event.repeat) resetRun()
     }
     const onKeyUp = (event: KeyboardEvent): void => {
       keyToInput(inputRef.current, event.code, false)
@@ -153,7 +179,7 @@ export const useTreeChoppingGame = () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('contextmenu', onContextMenu)
     }
-  }, [ensureAudio, requestDeposit, requestInteract, requestTeleport, setChopHeld])
+  }, [ensureAudio, requestDeposit, requestInteract, requestTeleport, resetRun, setChopHeld])
 
   useEffect(() => {
     let raf = 0
@@ -163,12 +189,24 @@ export const useTreeChoppingGame = () => {
       last = now
       stepGame(stateRef.current, inputRef.current, dt)
       playNewFeedbackSounds()
+      if (now - lastSaveRef.current > 1200) saveNow()
       forceRender((value) => value + 1)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playNewFeedbackSounds])
+  }, [playNewFeedbackSounds, saveNow])
+
+  useEffect(() => {
+    const onBeforeUnload = (): void => {
+      saveGameState(browserStorage(), stateRef.current)
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => {
+      onBeforeUnload()
+      window.removeEventListener('beforeunload', onBeforeUnload)
+    }
+  }, [])
 
   useEffect(() => {
     window.__TREE_CHOPPING_TEST__ = {
@@ -216,15 +254,15 @@ export const useTreeChoppingGame = () => {
         forceRender((value) => value + 1)
       },
       reset: () => {
-        stateRef.current = createWorld()
-        playedFeedbackRef.current.clear()
-        forceRender((value) => value + 1)
+        resetRun()
       },
+      resetRun,
+      saveNow,
     }
     return () => {
       delete window.__TREE_CHOPPING_TEST__
     }
-  }, [])
+  }, [resetRun, saveNow])
 
   return { controls, stateRef, state: stateRef.current }
 }

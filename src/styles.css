@@ -173,6 +173,18 @@ body,
   font-weight: 800;
 }
 
+.debug-reset {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid rgb(255 157 122 / 42%);
+  border-radius: 6px;
+  color: #fff7df;
+  background: rgb(84 34 18 / 72%);
+  font: 800 11px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  padding: 7px 8px;
+  text-transform: uppercase;
+}
+
 .touch-controls {
   pointer-events: none;
   position: absolute;

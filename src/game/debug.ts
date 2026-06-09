@@ -9,6 +9,7 @@ export const getDebugSnapshot = (state: GameState): DebugSnapshot => ({
   axeTier: state.axeTier,
   activeStationId: state.activeStationId,
   currentTargetId: state.currentTargetId,
+  currentSwingTargetIds: [...state.currentSwingTargetIds],
   standingTrees: state.trees.filter((tree) => tree.status === 'standing').length,
   fallingTrees: state.trees.filter((tree) => tree.status === 'falling').length,
   fallenTrees: state.trees.filter((tree) => tree.status === 'fallen').length,

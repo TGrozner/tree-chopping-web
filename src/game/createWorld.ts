@@ -193,6 +193,7 @@ export const createWorld = (seed = 0xca5c): GameState => {
     feedback: [],
     lastEventId: 0,
     currentTargetId: null,
+    currentSwingTargetIds: [],
     activeStationId: null,
     message: 'Find saplings. Depot banks backpack wood.',
     stats: {

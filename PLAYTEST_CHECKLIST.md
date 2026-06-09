@@ -19,6 +19,7 @@
 - Backpack count increases but stockpile stays unchanged until depot deposit.
 - Wood Depot transfers backpack into stockpile.
 - Tools station spends stockpile wood on the next axe tier.
+- Reloading preserves banked progression, and Reset run starts fresh.
 - R returns to the summit hub without resetting the world.
 
 ## Failure cases

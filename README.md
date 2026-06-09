@@ -29,6 +29,7 @@ Open the local Vite URL, usually `http://localhost:5173`.
 - `E` or `Enter`: use station
 - `F`: deposit backpack at the Wood Depot
 - `R`: return to summit hub
+- `Shift` + `Backspace` or Reset run button: clear saved progress and restart
 
 ## Current Scope
 
@@ -45,6 +46,7 @@ Included:
 - backpack-to-stockpile deposit loop
 - basic upgrades, prestige gate, combo pips, contextual HUD, debug snapshot
 - browser e2e using real keyboard movement and swing requests
+- local save/reload of progression, with explicit reset
 
 Explicitly not included:
 
@@ -63,6 +65,7 @@ npm run test
 npm run build
 npx playwright install chromium
 npm run e2e
+npm run e2e:visual
 ```
 
 Or:

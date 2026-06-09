@@ -115,7 +115,7 @@ export type SwingState = {
 
 export type FeedbackEvent = {
   id: number
-  kind: 'hit' | 'fall' | 'impact' | 'split' | 'collect' | 'upgrade' | 'deposit' | 'blocked' | 'whiff' | 'prestige'
+  kind: 'hit' | 'cleave' | 'fall' | 'impact' | 'split' | 'collect' | 'upgrade' | 'deposit' | 'blocked' | 'whiff' | 'prestige'
   label: string
   position: Vec2
   age: number
@@ -155,6 +155,7 @@ export type GameState = {
   feedback: FeedbackEvent[]
   lastEventId: number
   currentTargetId: string | null
+  currentSwingTargetIds: string[]
   activeStationId: string | null
   message: string
   stats: GameStats
@@ -168,6 +169,7 @@ export type DebugSnapshot = {
   axeTier: number
   activeStationId: string | null
   currentTargetId: string | null
+  currentSwingTargetIds: string[]
   standingTrees: number
   fallingTrees: number
   fallenTrees: number
@@ -189,6 +191,8 @@ export type TreeChoppingTestApi = {
   face: (x: number, z: number) => void
   look: (movementX: number) => void
   reset: () => void
+  resetRun: () => void
+  saveNow: () => void
 }
 
 declare global {

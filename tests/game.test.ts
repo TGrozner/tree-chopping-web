@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createWorld } from '../src/game/createWorld'
 import { add, normalize, scale, sub, vec } from '../src/game/math'
-import { backpackTotal, createEmptyInput, stepGame } from '../src/game/systems'
-import { TUNABLES } from '../src/game/tunables'
+import { backpackCapacity, backpackTotal, createEmptyInput, stepGame } from '../src/game/systems'
+import { AXE_COSTS, TUNABLES } from '../src/game/tunables'
 import type { GameState, Tree } from '../src/game/types'
 
 const stepSeconds = (state: GameState, seconds: number): void => {
@@ -92,6 +92,46 @@ describe('tree-chopping sbox loop', () => {
     stepSeconds(state, 1.4)
     expect(backpackTotal(state)).toBeGreaterThanOrEqual(1)
     expect(state.stockpile.wood).toBe(0)
+  })
+
+  it('never spawns zero-value wood items from small rewards', () => {
+    const state = createWorld()
+    const tree = starterTree(state)
+    state.trees = [tree]
+    tree.position = vec(0, 0)
+    tree.status = 'fallen'
+    tree.fallDirection = vec(1, 0)
+    tree.fallAngle = TUNABLES.treeGroundAngle
+    tree.logHealth = 1
+    tree.logMaxHealth = 1
+    tree.reward = 1
+    state.player.position = vec(1.8, -1.2)
+    state.player.facing = vec(0, 1)
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    swing(state)
+
+    expect(state.woodItems).toHaveLength(1)
+    expect(state.woodItems.every((item) => item.amount > 0)).toBe(true)
+  })
+
+  it('does not overflow backpack capacity on oversized pickups', () => {
+    const state = createWorld()
+    state.backpack.wood = backpackCapacity(state) - 1
+    state.woodItems.push({
+      id: 'oversized-pickup',
+      type: 'wood',
+      amount: 2,
+      position: { ...state.player.position },
+      velocity: vec(0, 0),
+      age: 0,
+      collected: false,
+    })
+
+    stepGame(state, createEmptyInput(), 1 / 60)
+
+    expect(backpackTotal(state)).toBe(backpackCapacity(state) - 1)
+    expect(state.woodItems[0].collected).toBe(false)
   })
 
   it('only builds combo from damaging hits', () => {
@@ -367,7 +407,7 @@ describe('tree-chopping sbox loop', () => {
     expect(state.currentTargetId).toBe(cameraTree.id)
     swing(state)
     expect(cameraTree.health).toBeLessThan(cameraTree.maxHealth)
-    expect(movementTree.health).toBeLessThan(movementTree.maxHealth)
+    expect(movementTree.health).toBe(movementTree.maxHealth)
   })
 
   it('lets one swing hit multiple trees in the arc without hitting a side tree', () => {
@@ -384,6 +424,9 @@ describe('tree-chopping sbox loop', () => {
     frontB.position = vec(2.55, -0.32)
     side.position = vec(0.4, 3.5)
 
+    stepGame(state, createEmptyInput(), 1 / 60)
+    expect(state.currentSwingTargetIds).toEqual([frontA.id, frontB.id])
+
     swing(state)
 
     expect(frontA.health).toBe(frontA.maxHealth - 1)
@@ -391,6 +434,30 @@ describe('tree-chopping sbox loop', () => {
     expect(side.health).toBe(side.maxHealth)
     expect(state.stats.hits).toBe(2)
     expect(state.swing.combo).toBe(1)
+    expect(state.message).toBe('Cleave hit 2 targets.')
+    expect(state.feedback.some((event) => event.kind === 'cleave' && event.label === 'cleave x2')).toBe(true)
+  })
+
+  it('applies combo finisher damage only to the primary swing target', () => {
+    const state = createWorld()
+    const primary = starterTree(state)
+    const secondary = state.trees.find((tree) => tree.id === 'starter-sapling-001')
+    if (!secondary) throw new Error('missing neighboring sapling')
+    state.trees = [primary, secondary]
+    state.player.position = vec(0, 0)
+    state.player.facing = vec(1, 0)
+    state.player.cameraYaw = 0
+    primary.position = vec(2.35, 0.18)
+    secondary.position = vec(2.55, -0.28)
+    state.swing.combo = TUNABLES.comboMax - 1
+    state.swing.comboTimer = TUNABLES.comboWindow
+
+    swing(state)
+
+    expect(primary.health).toBe(primary.maxHealth - 2)
+    expect(secondary.health).toBe(secondary.maxHealth - 1)
+    expect(state.feedback.some((event) => event.kind === 'hit' && event.label === 'x2 -2')).toBe(true)
+    expect(state.feedback.some((event) => event.kind === 'cleave' && event.label === 'cleave x2')).toBe(true)
   })
 
   it('lets one swing hit a fallen trunk and a standing tree in front', () => {
@@ -456,7 +523,7 @@ describe('tree-chopping sbox loop', () => {
 
   it('deposits backpack wood at the depot and buys the Stone axe at tools', () => {
     const state = createWorld()
-    state.backpack.wood = 8
+    state.backpack.wood = AXE_COSTS[1].wood
     const depot = state.stations.find((station) => station.kind === 'depot')
     const tools = state.stations.find((station) => station.kind === 'tools')
     if (!depot || !tools) throw new Error('missing shop stations')
@@ -467,7 +534,7 @@ describe('tree-chopping sbox loop', () => {
     depositInput.interactRequests = 1
     stepGame(state, depositInput, 1 / 60)
     expect(backpackTotal(state)).toBe(0)
-    expect(state.stockpile.wood).toBe(8)
+    expect(state.stockpile.wood).toBe(AXE_COSTS[1].wood)
 
     state.player.position = { ...tools.position }
     stepGame(state, createEmptyInput(), 1 / 60)
@@ -475,6 +542,23 @@ describe('tree-chopping sbox loop', () => {
     upgradeInput.interactRequests = 1
     stepGame(state, upgradeInput, 1 / 60)
     expect(state.axeTier).toBe(1)
+    expect(state.stockpile.wood).toBe(0)
+  })
+
+  it('buys speed before backpack when early upgrade wood is limited', () => {
+    const state = createWorld()
+    const upgrades = state.stations.find((station) => station.kind === 'upgrades')
+    if (!upgrades) throw new Error('missing upgrades station')
+    state.stockpile.wood = 14
+    state.player.position = { ...upgrades.position }
+    stepGame(state, createEmptyInput(), 1 / 60)
+    const input = createEmptyInput()
+    input.interactRequests = 1
+
+    stepGame(state, input, 1 / 60)
+
+    expect(state.speedTier).toBe(1)
+    expect(state.backpackTier).toBe(0)
     expect(state.stockpile.wood).toBe(0)
   })
 

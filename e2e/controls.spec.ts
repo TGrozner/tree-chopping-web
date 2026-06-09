@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { clearSavedRun, saveKey, waitForGame as waitForGameApi } from './helpers'
 
 type Vec2 = { x: number; z: number }
 type Box = { x: number; y: number; width: number; height: number }
@@ -10,10 +11,9 @@ const intersects = (a: Box, b: Box): boolean =>
   a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
 const waitForGame = async (page: Page): Promise<void> => {
+  await clearSavedRun(page)
   await page.goto('/')
-  await expect(page.getByLabel('Tree Chopping Web game canvas')).toBeVisible()
-  await page.waitForFunction(() => Boolean((window as any).__TREE_CHOPPING_TEST__))
-  await page.waitForFunction(() => Boolean((window as any).__TREE_CHOPPING_CAMERA__))
+  await waitForGameApi(page)
   await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().currentTargetId === 'starter-sapling-000')
 }
 
@@ -165,4 +165,31 @@ test('touch dpad up moves toward the first target and touch chop hits it', async
   const afterSwing = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getState())
   expect(afterSwing.stats.hits).toBeGreaterThanOrEqual(2)
   expect(consoleErrors).toEqual([])
+})
+
+test('saved progression survives reload and reset run clears it', async ({ page }) => {
+  await page.goto('/')
+  await waitForGameApi(page)
+  await page.evaluate((key) => window.localStorage.removeItem(key), saveKey)
+  await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.resetRun())
+
+  await page.evaluate(() => {
+    const api = (window as any).__TREE_CHOPPING_TEST__
+    const state = api.getState()
+    state.stockpile.wood = 18
+    state.axeTier = 1
+    api.saveNow()
+  })
+
+  await page.reload()
+  await waitForGameApi(page)
+  await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().axeTier === 1)
+  expect(await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().stockpile.wood)).toBe(18)
+
+  await page.getByTestId('debug-overlay').click()
+  await page.getByRole('button', { name: /^reset run$/i }).click()
+  await page.waitForFunction(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot().axeTier === 0)
+  const snapshot = await page.evaluate(() => (window as any).__TREE_CHOPPING_TEST__.getSnapshot())
+  expect(snapshot.stockpile.wood).toBe(0)
+  expect(snapshot.currentTargetId).toBe('starter-sapling-000')
 })

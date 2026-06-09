@@ -91,6 +91,7 @@ export class Renderer {
   private readonly feedback = new Map<number, THREE.Sprite>()
   private readonly effects = new Map<number, THREE.Group>()
   private readonly targetRing: THREE.Mesh
+  private readonly secondaryTargetRings: THREE.Mesh[] = []
   private readonly stationRing: THREE.Mesh
   private readonly fallGuide: THREE.ArrowHelper
   private readonly axePivot: THREE.Group
@@ -210,6 +211,18 @@ export class Renderer {
     this.targetRing.rotation.x = Math.PI * 0.5
     this.targetRing.visible = false
     this.scene.add(this.targetRing)
+
+    for (let index = 1; index < TUNABLES.swingMaxHits; index += 1) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1, 0.028, 6, 48),
+        new THREE.MeshBasicMaterial({ color: '#ffe8a3', transparent: true, opacity: 0.42, depthTest: false }),
+      )
+      ring.rotation.x = Math.PI * 0.5
+      ring.visible = false
+      ring.renderOrder = 7
+      this.secondaryTargetRings.push(ring)
+      this.scene.add(ring)
+    }
 
     this.fallGuide = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 3.4, '#ffd166', 0.72, 0.34)
     this.fallGuide.renderOrder = 8
@@ -506,7 +519,7 @@ export class Renderer {
     for (const event of events) {
       let sprite = this.feedback.get(event.id)
       if (!sprite) {
-        const color = event.kind === 'blocked' ? '#ff9d7a' : event.kind === 'upgrade' || event.kind === 'deposit' ? '#ffd166' : '#fff7df'
+        const color = event.kind === 'blocked' ? '#ff9d7a' : event.kind === 'cleave' || event.kind === 'upgrade' || event.kind === 'deposit' ? '#ffd166' : '#fff7df'
         sprite = createTextSprite(event.label, color, 'rgba(17,25,13,0.48)')
         sprite.scale.set(2.2, 0.82, 1)
         this.scene.add(sprite)
@@ -520,7 +533,7 @@ export class Renderer {
   }
 
   private syncEffect(event: FeedbackEvent, t: number): void {
-    if (!['hit', 'impact', 'fall', 'split'].includes(event.kind)) return
+    if (!['hit', 'cleave', 'impact', 'fall', 'split'].includes(event.kind)) return
     let group = this.effects.get(event.id)
     if (!group) {
       group = this.createEffect(event)
@@ -547,7 +560,8 @@ export class Renderer {
     const group = new THREE.Group()
     const isDust = event.kind === 'impact' || event.kind === 'fall'
     const isSplit = event.kind === 'split'
-    const count = isDust ? 12 : isSplit ? 16 : 8
+    const isCleave = event.kind === 'cleave'
+    const count = isDust ? 12 : isSplit ? 16 : isCleave ? 14 : 8
     if (isDust) {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.75, 0.035, 6, 36),
@@ -560,17 +574,17 @@ export class Renderer {
     }
     for (let index = 0; index < count; index += 1) {
       const angle = (index / count) * Math.PI * 2
-      const speed = isDust ? 1.2 + (index % 4) * 0.25 : isSplit ? 2.2 + (index % 5) * 0.25 : 1.7 + (index % 4) * 0.2
-      const vertical = isDust ? 0.08 + (index % 3) * 0.035 : 0.45 + (index % 4) * 0.08
+      const speed = isDust ? 1.2 + (index % 4) * 0.25 : isSplit || isCleave ? 2.2 + (index % 5) * 0.25 : 1.7 + (index % 4) * 0.2
+      const vertical = isDust ? 0.08 + (index % 3) * 0.035 : isCleave ? 0.32 + (index % 4) * 0.06 : 0.45 + (index % 4) * 0.08
       const mesh = new THREE.Mesh(
         isDust ? new THREE.DodecahedronGeometry(0.08 + (index % 3) * 0.02, 0) : new THREE.BoxGeometry(0.14, 0.08, 0.08),
-        new THREE.MeshLambertMaterial({ color: isDust ? '#b79a61' : index % 3 === 0 ? '#d2a15d' : '#8b5d32', transparent: true }),
+        new THREE.MeshLambertMaterial({ color: isDust ? '#b79a61' : isCleave ? '#ffd166' : index % 3 === 0 ? '#d2a15d' : '#8b5d32', transparent: true }),
       )
       mesh.userData.velocity = new THREE.Vector3(Math.cos(angle) * speed, vertical, Math.sin(angle) * speed)
       mesh.userData.spinX = 0.05 + (index % 4) * 0.018
       mesh.userData.spinY = 0.04 + (index % 5) * 0.014
       mesh.userData.baseOpacity = isDust ? 0.58 : 0.92
-      mesh.userData.baseScale = isDust ? 1.1 : isSplit ? 1.15 : 1
+      mesh.userData.baseScale = isDust ? 1.1 : isSplit ? 1.15 : isCleave ? 1.05 : 1
       group.add(mesh)
     }
     return group
@@ -580,6 +594,7 @@ export class Renderer {
     const targetTree = state.trees.find((tree) => tree.id === state.currentTargetId)
     const targetLog = state.logs.find((log) => log.id === state.currentTargetId && log.status === 'landed' && !log.splitDone)
     this.fallGuide.visible = false
+    for (const ring of this.secondaryTargetRings) ring.visible = false
     if (targetTree) {
       this.targetRing.visible = true
       this.targetRing.scale.setScalar(targetTree.status === 'fallen' ? 0.82 : targetTree.scale * (targetTree.kind === 'sapling' ? 0.78 : 1.05))
@@ -606,6 +621,24 @@ export class Renderer {
       this.targetRing.position.copy(toThree(targetLog.position, 0.08))
     } else {
       this.targetRing.visible = false
+    }
+
+    const secondaryIds = state.currentSwingTargetIds.filter((id) => id !== state.currentTargetId).slice(0, this.secondaryTargetRings.length)
+    for (const [index, id] of secondaryIds.entries()) {
+      const ring = this.secondaryTargetRings[index]
+      const tree = state.trees.find((candidate) => candidate.id === id)
+      const log = state.logs.find((candidate) => candidate.id === id && candidate.status === 'landed' && !candidate.splitDone)
+      const targetPosition =
+        tree?.status === 'fallen'
+          ? {
+              x: tree.position.x + tree.fallDirection.x * TUNABLES.treeHeight * tree.scale * 0.45,
+              z: tree.position.z + tree.fallDirection.z * TUNABLES.treeHeight * tree.scale * 0.45,
+            }
+          : tree?.position ?? log?.position
+      if (!targetPosition) continue
+      ring.visible = true
+      ring.scale.setScalar(tree ? (tree.status === 'fallen' ? 0.7 : tree.scale * 0.68) : Math.max(0.44, (log?.scale ?? 1) * 0.66))
+      ring.position.copy(toThree(targetPosition, 0.1))
     }
 
     const activeStation = state.stations.find((station) => station.id === state.activeStationId)
@@ -642,9 +675,9 @@ export class Renderer {
     const targetFov = isPortrait ? 66 : 61
     let cameraImpulse = 0
     for (const event of state.feedback) {
-      if (!['hit', 'impact', 'fall', 'split'].includes(event.kind)) continue
+      if (!['hit', 'cleave', 'impact', 'fall', 'split'].includes(event.kind)) continue
       const t = Math.min(1, event.age / TUNABLES.feedbackLifetime)
-      const strength = event.kind === 'hit' ? 0.08 : event.kind === 'split' ? 0.18 : event.label === 'thud' ? 0.28 : 0.2
+      const strength = event.kind === 'hit' ? 0.08 : event.kind === 'cleave' ? 0.13 : event.kind === 'split' ? 0.18 : event.label === 'thud' ? 0.28 : 0.2
       cameraImpulse += Math.sin((1 - t) * Math.PI * 3) * Math.pow(1 - t, 2) * strength
     }
     if (this.camera.position.lengthSq() < 0.001) this.camera.position.copy(desiredPosition)

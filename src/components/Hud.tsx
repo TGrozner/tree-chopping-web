@@ -3,6 +3,7 @@ import { AXE_NAMES, AXE_COSTS, BACKPACK_CAPS, TUNABLES, WOOD_TYPES } from '../ga
 import type { GameState, Inventory, Station } from '../game/types'
 
 type Props = {
+  onResetRun: () => void
   state: GameState
 }
 
@@ -31,7 +32,7 @@ const targetLabel = (state: GameState): string => {
   return state.currentTargetId
 }
 
-export const Hud = ({ state }: Props) => {
+export const Hud = ({ onResetRun, state }: Props) => {
   const standing = state.trees.filter((tree) => tree.status === 'standing').length
   const activeStation = state.stations.find((station) => station.id === state.activeStationId)
   const packTotal = backpackTotal(state)
@@ -85,6 +86,7 @@ export const Hud = ({ state }: Props) => {
         <div>items: {state.woodItems.filter((item) => !item.collected).length}</div>
         <div>swings/hits: {state.stats.swings}/{state.stats.hits}</div>
         <div>blocked: {state.stats.blockedHits}</div>
+        <button className="debug-reset" onClick={onResetRun} type="button">reset run</button>
       </details>
     </div>
   )

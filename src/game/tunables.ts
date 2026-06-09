@@ -24,7 +24,7 @@ export const AXE_COSTS: readonly Inventory[] = [
 ]
 
 export const BACKPACK_CAPS = [24, 80, 180, 420, 950, 2200] as const
-export const BACKPACK_COSTS = [0, 14, 55, 160, 420, 1000] as const
+export const BACKPACK_COSTS = [0, 24, 55, 160, 420, 1000] as const
 
 export const STATION_LABELS: Record<StationKind, string> = {
   tools: 'TOOLS',
@@ -53,7 +53,7 @@ export const TREE_SPECS: Record<
 > = {
   sapling: {
     baseHealth: 4,
-    reward: 1,
+    reward: 2,
     minAxeTier: 0,
     trunk: '#8b5d32',
     tint: '#5fb65d',
@@ -111,6 +111,8 @@ export const TUNABLES = {
   swingMaxHits: 3,
   swingArcDot: 0.22,
   swingCloseArcDot: -0.35,
+  swingSecondaryLaneDot: 0.68,
+  swingSecondaryScoreSlack: 3.2,
   swingWindup: 0.42,
   swingRecovery: 0.24,
   treeShakeDuration: 0.36,
@@ -145,7 +147,7 @@ export const TUNABLES = {
   logImpactBounce: 0.34,
   logImpactSurvivorDamping: 0.34,
   logImpactCascadeDamping: 0.7,
-  halfLogMinReward: 3,
+  halfLogMinReward: 4,
   halfLogHealthMultiplier: 0.56,
   halfLogLaunchSpeed: 1.9,
   logHitKickSpeed: 2.45,

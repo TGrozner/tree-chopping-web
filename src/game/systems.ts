@@ -185,8 +185,16 @@ const findTarget = (state: GameState): Target | null => {
 }
 
 const updateTarget = (state: GameState): void => {
+  const swingTargets = findSwingHits(state)
+  if (swingTargets.length > 0) {
+    state.currentSwingTargetIds = swingTargets.map(targetId)
+    state.currentTargetId = state.currentSwingTargetIds[0]
+    return
+  }
+
   const target = findTarget(state)
   state.currentTargetId = target?.type === 'sublog' ? target.log.id : target?.tree.id ?? null
+  state.currentSwingTargetIds = state.currentTargetId ? [state.currentTargetId] : []
 }
 
 const updateActiveStation = (state: GameState): void => {
@@ -253,7 +261,7 @@ const primeFallenTreeLog = (state: GameState, tree: Tree, impactAngularVelocity:
 }
 
 const spawnWoodItemsAt = (state: GameState, idPrefix: string, type: WoodType, reward: number, center: Vec2, direction: Vec2): void => {
-  const pieces = clamp(Math.ceil(reward / 2), 2, 6)
+  const pieces = clamp(Math.ceil(reward / 2), 1, 6)
   let remaining = reward
   for (let index = 0; index < pieces; index += 1) {
     const amount = Math.ceil(remaining / (pieces - index))
@@ -412,6 +420,28 @@ const swingScore = (state: GameState, position: Vec2, radius: number, range: num
   return edgeDistance * edgeDistance + (1 - aimScore) * (isClose ? 0.28 : 0.72) - scoreBonus
 }
 
+const swingTargetPosition = (state: GameState, target: Target): Vec2 => {
+  if (target.type === 'tree') return target.tree.position
+  if (target.type === 'log') return nearestPointOnSegment(state.player.position, target.tree.position, getTreePhysicsTip(target.tree))
+  const [start, end] = getSubLogEndPoints(target.log)
+  return nearestPointOnSegment(state.player.position, start, end)
+}
+
+const targetId = (target: Target): string => (target.type === 'sublog' ? target.log.id : target.tree.id)
+
+const inSameSwingLane = (state: GameState, primary: Target, candidate: Target): boolean => {
+  if (targetId(primary) === targetId(candidate)) return true
+  if (candidate.score > primary.score + TUNABLES.swingSecondaryScoreSlack) return false
+  const primaryDirection = normalize(sub(swingTargetPosition(state, primary), state.player.position), state.player.facing)
+  const candidateDirection = normalize(sub(swingTargetPosition(state, candidate), state.player.position), state.player.facing)
+  return dot(primaryDirection, candidateDirection) >= TUNABLES.swingSecondaryLaneDot
+}
+
+const feedbackCenter = (state: GameState, targets: Target[]): Vec2 => {
+  const sum = targets.reduce((position, target) => add(position, swingTargetPosition(state, target)), vec(0, 0))
+  return scale(sum, 1 / Math.max(1, targets.length))
+}
+
 const findSwingHits = (state: GameState): Target[] => {
   const hits: Target[] = []
   const treeRange = targetRange(state)
@@ -439,12 +469,15 @@ const findSwingHits = (state: GameState): Target[] => {
     if (score !== null) hits.push({ type: 'sublog', log, score })
   }
 
-  return hits.sort((a, b) => a.score - b.score).slice(0, TUNABLES.swingMaxHits)
+  const sortedHits = hits.sort((a, b) => a.score - b.score)
+  const primary = sortedHits[0]
+  if (!primary) return []
+  return sortedHits.filter((target) => inSameSwingLane(state, primary, target)).slice(0, TUNABLES.swingMaxHits)
 }
 
 const applySwingHit = (state: GameState): void => {
   const targets = findSwingHits(state)
-  state.swing.lastTargetId = targets[0]?.type === 'sublog' ? targets[0].log.id : targets[0]?.tree.id ?? null
+  state.swing.lastTargetId = targets[0] ? targetId(targets[0]) : null
 
   if (targets.length === 0) {
     state.swing.combo = 0
@@ -458,14 +491,22 @@ const applySwingHit = (state: GameState): void => {
   const finalCombo = nextCombo >= TUNABLES.comboMax
   const comboMultiplier = finalCombo ? TUNABLES.comboFinalMultiplier : 1
   let hit = false
-  for (const target of targets) {
+  const hitTargets: Target[] = []
+  for (const [index, target] of targets.entries()) {
+    const targetComboMultiplier = index === 0 ? comboMultiplier : 1
     const didHit =
       target.type === 'tree'
-        ? applyTreeHit(state, target.tree, comboMultiplier)
+        ? applyTreeHit(state, target.tree, targetComboMultiplier)
         : target.type === 'log'
-          ? applyLogHit(state, target.tree, comboMultiplier)
-          : applySubLogHit(state, target.log, comboMultiplier)
+          ? applyLogHit(state, target.tree, targetComboMultiplier)
+          : applySubLogHit(state, target.log, targetComboMultiplier)
     hit = hit || didHit
+    if (didHit) hitTargets.push(target)
+  }
+
+  if (hitTargets.length > 1) {
+    addFeedback(state, 'cleave', `cleave x${hitTargets.length}`, feedbackCenter(state, hitTargets))
+    setMessage(state, `Cleave hit ${hitTargets.length} targets.`)
   }
 
   if (hit) {
@@ -802,8 +843,8 @@ const tryUpgradePassive = (state: GameState, key: 'speedTier' | 'powerTier' | 'l
 
 export const tryUpgradeAtStation = (state: GameState): boolean => {
   if (tryUpgradeBackpack(state)) return true
-  if (tryUpgradePassive(state, 'speedTier', 'speed', 20)) return true
-  if (tryUpgradePassive(state, 'powerTier', 'power', 32)) return true
+  if (tryUpgradePassive(state, 'speedTier', 'speed', 14)) return true
+  if (tryUpgradePassive(state, 'powerTier', 'power', 24)) return true
   if (tryUpgradePassive(state, 'luckTier', 'luck', 46)) return true
   if (tryUpgradePassive(state, 'petTier', 'pet', 70)) return true
   setMessage(state, 'No affordable upgrade.')

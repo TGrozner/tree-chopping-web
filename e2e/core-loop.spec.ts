@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { clearSavedRun } from './helpers'
 
 const pressSwing = async (page: Page, expectedHits: number): Promise<void> => {
   await page.keyboard.press('Space')
@@ -59,6 +60,7 @@ test('core loop: swing, fallen tree, backpack, depot, and hub return', async ({ 
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
 
+  await clearSavedRun(page)
   await page.goto('/')
   await expect(page.getByLabel('Tree Chopping Web game canvas')).toBeVisible()
 

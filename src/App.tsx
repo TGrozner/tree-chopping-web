@@ -10,7 +10,7 @@ const App = () => {
   return (
     <main className="app-shell">
       <GameCanvas stateRef={stateRef} />
-      <Hud state={state} />
+      <Hud onResetRun={controls.resetRun} state={state} />
       <GameControls controls={controls} />
     </main>
   )
